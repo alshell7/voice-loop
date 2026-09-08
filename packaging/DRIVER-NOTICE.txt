@@ -1,0 +1,19 @@
+Voice Loop virtual audio setup
+
+Windows audio paths use VB-CABLE and Hi-Fi Cable & ASIO Bridge by VB-Audio Software.
+Origin: https://www.vb-cable.com/ and https://vb-audio.com/Cable/
+These are donationware. All contributions are welcome. Donate/pay for your license:
+https://vb-audio.com/Services/licensing.htm
+
+The original, unmodified VB-CABLE package is included. Hi-Fi Cable is downloaded
+directly from VB-Audio during audio setup. Voice Loop does not modify the signed
+drivers. VoiceLoop Mic and VoiceLoop Speaker are endpoint display names.
+VB-Audio's own license applies to its software; it is not covered by Voice Loop's MIT license.
+Professional and organizational use is subject to VB-Audio's licensing terms.
+
+macOS uses unmodified BlackHole 2ch and 16ch 0.7.1 by Existential Audio, GPL-3.0.
+Source and license: https://github.com/ExistentialAudio/BlackHole/tree/v0.7.1
+Public Core Audio aggregate devices provide the VoiceLoop names.
+
+Uninstalling Voice Loop preserves recordings and shared audio drivers. Remove
+shared drivers only with their vendor's instructions when other apps no longer need them.

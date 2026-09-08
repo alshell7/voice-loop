@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voice-loop"
+version = "0.3.2"
+description = "Local audio routing and stereo capture for meeting tools, without a meeting bot."
+authors = [{name = "alshell7"}]
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["numpy>=1.26,<3", "soundcard==0.4.6", "PySide6-Essentials>=6.8,<7", "keyring>=25,<26"]
+
+[project.urls]
+Homepage = "https://github.com/alshell7/voice-loop"
+Repository = "https://github.com/alshell7/voice-loop"
+Issues = "https://github.com/alshell7/voice-loop/issues"
+Releases = "https://github.com/alshell7/voice-loop/releases"
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.11", "pyinstaller>=6.11,<7"]
+whisper = ["faster-whisper>=1.1,<2"]
+
+[project.scripts]
+voiceloop = "voiceloop.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+voiceloop = ["resources/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Native Qt style rules and inline SVG paths are easier to maintain intact.
+"src/voiceloop/ui.py" = ["E501"]
+"src/voiceloop/ui_extras.py" = ["E501"]
+"src/voiceloop/transcript_html.py" = ["E501"]
+"tests/test_ui.py" = ["E402"]

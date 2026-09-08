@@ -1,0 +1,460 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-08T14:51:26.418499Z",
+  "title": "Design System: Voice Loop",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Action blue",
+        "tonalRamp": [
+          "oklch(15% 0.2095 257.9)",
+          "oklch(25% 0.2095 257.9)",
+          "oklch(35% 0.2095 257.9)",
+          "oklch(45% 0.2095 257.9)",
+          "oklch(60% 0.2095 257.9)",
+          "oklch(72% 0.2095 257.9)",
+          "oklch(84% 0.2095 257.9)",
+          "oklch(95% 0.2095 257.9)"
+        ]
+      },
+      "primary-deep": {
+        "role": "primary",
+        "displayName": "Deep blue",
+        "tonalRamp": [
+          "oklch(15% 0.1800 257.7)",
+          "oklch(25% 0.1800 257.7)",
+          "oklch(35% 0.1800 257.7)",
+          "oklch(45% 0.1800 257.7)",
+          "oklch(60% 0.1800 257.7)",
+          "oklch(72% 0.1800 257.7)",
+          "oklch(84% 0.1800 257.7)",
+          "oklch(95% 0.1800 257.7)"
+        ]
+      },
+      "primary-tint": {
+        "role": "primary",
+        "displayName": "Pale blue",
+        "tonalRamp": [
+          "oklch(15% 0.0195 260.2)",
+          "oklch(25% 0.0195 260.2)",
+          "oklch(35% 0.0195 260.2)",
+          "oklch(45% 0.0195 260.2)",
+          "oklch(60% 0.0195 260.2)",
+          "oklch(72% 0.0195 260.2)",
+          "oklch(84% 0.0195 260.2)",
+          "oklch(95% 0.0195 260.2)"
+        ]
+      },
+      "focus": {
+        "role": "primary",
+        "displayName": "Focus blue",
+        "tonalRamp": [
+          "oklch(15% 0.1781 254.8)",
+          "oklch(25% 0.1781 254.8)",
+          "oklch(35% 0.1781 254.8)",
+          "oklch(45% 0.1781 254.8)",
+          "oklch(60% 0.1781 254.8)",
+          "oklch(72% 0.1781 254.8)",
+          "oklch(84% 0.1781 254.8)",
+          "oklch(95% 0.1781 254.8)"
+        ]
+      },
+      "workspace": {
+        "role": "neutral",
+        "displayName": "Workspace gray",
+        "tonalRamp": [
+          "oklch(15% 0.0029 264.5)",
+          "oklch(25% 0.0029 264.5)",
+          "oklch(35% 0.0029 264.5)",
+          "oklch(45% 0.0029 264.5)",
+          "oklch(60% 0.0029 264.5)",
+          "oklch(72% 0.0029 264.5)",
+          "oklch(84% 0.0029 264.5)",
+          "oklch(95% 0.0029 264.5)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface white",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.0)",
+          "oklch(25% 0.0000 0.0)",
+          "oklch(35% 0.0000 0.0)",
+          "oklch(45% 0.0000 0.0)",
+          "oklch(60% 0.0000 0.0)",
+          "oklch(72% 0.0000 0.0)",
+          "oklch(84% 0.0000 0.0)",
+          "oklch(95% 0.0000 0.0)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "tonalRamp": [
+          "oklch(15% 0.0179 266.3)",
+          "oklch(25% 0.0179 266.3)",
+          "oklch(35% 0.0179 266.3)",
+          "oklch(45% 0.0179 266.3)",
+          "oklch(60% 0.0179 266.3)",
+          "oklch(72% 0.0179 266.3)",
+          "oklch(84% 0.0179 266.3)",
+          "oklch(95% 0.0179 266.3)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted gray",
+        "tonalRamp": [
+          "oklch(15% 0.0237 264.3)",
+          "oklch(25% 0.0237 264.3)",
+          "oklch(35% 0.0237 264.3)",
+          "oklch(45% 0.0237 264.3)",
+          "oklch(60% 0.0237 264.3)",
+          "oklch(72% 0.0237 264.3)",
+          "oklch(84% 0.0237 264.3)",
+          "oklch(95% 0.0237 264.3)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Soft border",
+        "tonalRamp": [
+          "oklch(15% 0.0071 268.5)",
+          "oklch(25% 0.0071 268.5)",
+          "oklch(35% 0.0071 268.5)",
+          "oklch(45% 0.0071 268.5)",
+          "oklch(60% 0.0071 268.5)",
+          "oklch(72% 0.0071 268.5)",
+          "oklch(84% 0.0071 268.5)",
+          "oklch(95% 0.0071 268.5)"
+        ]
+      },
+      "control": {
+        "role": "neutral",
+        "displayName": "Control gray",
+        "tonalRamp": [
+          "oklch(15% 0.0046 258.3)",
+          "oklch(25% 0.0046 258.3)",
+          "oklch(35% 0.0046 258.3)",
+          "oklch(45% 0.0046 258.3)",
+          "oklch(60% 0.0046 258.3)",
+          "oklch(72% 0.0046 258.3)",
+          "oklch(84% 0.0046 258.3)",
+          "oklch(95% 0.0046 258.3)"
+        ]
+      },
+      "control-text": {
+        "role": "neutral",
+        "displayName": "Control ink",
+        "tonalRamp": [
+          "oklch(15% 0.0268 261.6)",
+          "oklch(25% 0.0268 261.6)",
+          "oklch(35% 0.0268 261.6)",
+          "oklch(45% 0.0268 261.6)",
+          "oklch(60% 0.0268 261.6)",
+          "oklch(72% 0.0268 261.6)",
+          "oklch(84% 0.0268 261.6)",
+          "oklch(95% 0.0268 261.6)"
+        ]
+      },
+      "control-hover": {
+        "role": "neutral",
+        "displayName": "Control hover",
+        "tonalRamp": [
+          "oklch(15% 0.0092 258.3)",
+          "oklch(25% 0.0092 258.3)",
+          "oklch(35% 0.0092 258.3)",
+          "oklch(45% 0.0092 258.3)",
+          "oklch(60% 0.0092 258.3)",
+          "oklch(72% 0.0092 258.3)",
+          "oklch(84% 0.0092 258.3)",
+          "oklch(95% 0.0092 258.3)"
+        ]
+      },
+      "control-pressed": {
+        "role": "neutral",
+        "displayName": "Control pressed",
+        "tonalRamp": [
+          "oklch(15% 0.0156 257.2)",
+          "oklch(25% 0.0156 257.2)",
+          "oklch(35% 0.0156 257.2)",
+          "oklch(45% 0.0156 257.2)",
+          "oklch(60% 0.0156 257.2)",
+          "oklch(72% 0.0156 257.2)",
+          "oklch(84% 0.0156 257.2)",
+          "oklch(95% 0.0156 257.2)"
+        ]
+      },
+      "field": {
+        "role": "neutral",
+        "displayName": "Field gray",
+        "tonalRamp": [
+          "oklch(15% 0.0029 264.5)",
+          "oklch(25% 0.0029 264.5)",
+          "oklch(35% 0.0029 264.5)",
+          "oklch(45% 0.0029 264.5)",
+          "oklch(60% 0.0029 264.5)",
+          "oklch(72% 0.0029 264.5)",
+          "oklch(84% 0.0029 264.5)",
+          "oklch(95% 0.0029 264.5)"
+        ]
+      },
+      "field-border": {
+        "role": "neutral",
+        "displayName": "Field border",
+        "tonalRamp": [
+          "oklch(15% 0.0075 260.7)",
+          "oklch(25% 0.0075 260.7)",
+          "oklch(35% 0.0075 260.7)",
+          "oklch(45% 0.0075 260.7)",
+          "oklch(60% 0.0075 260.7)",
+          "oklch(72% 0.0075 260.7)",
+          "oklch(84% 0.0075 260.7)",
+          "oklch(95% 0.0075 260.7)"
+        ]
+      },
+      "track": {
+        "role": "neutral",
+        "displayName": "Meter track",
+        "tonalRamp": [
+          "oklch(15% 0.0058 264.5)",
+          "oklch(25% 0.0058 264.5)",
+          "oklch(35% 0.0058 264.5)",
+          "oklch(45% 0.0058 264.5)",
+          "oklch(60% 0.0058 264.5)",
+          "oklch(72% 0.0058 264.5)",
+          "oklch(84% 0.0058 264.5)",
+          "oklch(95% 0.0058 264.5)"
+        ]
+      },
+      "badge": {
+        "role": "neutral",
+        "displayName": "Badge gray",
+        "tonalRamp": [
+          "oklch(15% 0.0058 264.5)",
+          "oklch(25% 0.0058 264.5)",
+          "oklch(35% 0.0058 264.5)",
+          "oklch(45% 0.0058 264.5)",
+          "oklch(60% 0.0058 264.5)",
+          "oklch(72% 0.0058 264.5)",
+          "oklch(84% 0.0058 264.5)",
+          "oklch(95% 0.0058 264.5)"
+        ]
+      },
+      "badge-text": {
+        "role": "neutral",
+        "displayName": "Badge ink",
+        "tonalRamp": [
+          "oklch(15% 0.0260 263.1)",
+          "oklch(25% 0.0260 263.1)",
+          "oklch(35% 0.0260 263.1)",
+          "oklch(45% 0.0260 263.1)",
+          "oklch(60% 0.0260 263.1)",
+          "oklch(72% 0.0260 263.1)",
+          "oklch(84% 0.0260 263.1)",
+          "oklch(95% 0.0260 263.1)"
+        ]
+      },
+      "icon": {
+        "role": "neutral",
+        "displayName": "Icon gray",
+        "tonalRamp": [
+          "oklch(15% 0.0320 263.3)",
+          "oklch(25% 0.0320 263.3)",
+          "oklch(35% 0.0320 263.3)",
+          "oklch(45% 0.0320 263.3)",
+          "oklch(60% 0.0320 263.3)",
+          "oklch(72% 0.0320 263.3)",
+          "oklch(84% 0.0320 263.3)",
+          "oklch(95% 0.0320 263.3)"
+        ]
+      },
+      "level": {
+        "role": "secondary",
+        "displayName": "Live green",
+        "tonalRamp": [
+          "oklch(15% 0.1363 162.0)",
+          "oklch(25% 0.1363 162.0)",
+          "oklch(35% 0.1363 162.0)",
+          "oklch(45% 0.1363 162.0)",
+          "oklch(60% 0.1363 162.0)",
+          "oklch(72% 0.1363 162.0)",
+          "oklch(84% 0.1363 162.0)",
+          "oklch(95% 0.1363 162.0)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Page headline",
+        "purpose": "Bold native page title; no promotional display face."
+      },
+      "title": {
+        "displayName": "Panel title",
+        "purpose": "Semibold heading for a group of decisions."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default control and explanatory copy."
+      },
+      "label": {
+        "displayName": "Field label",
+        "purpose": "Semibold device and channel labels."
+      },
+      "small": {
+        "displayName": "Metadata",
+        "purpose": "Hints, paths, statuses, badges, meter readings, and table headers."
+      },
+      "timer": {
+        "displayName": "Elapsed time",
+        "purpose": "Monospace session measurement in the persistent transport."
+      }
+    },
+    "shadows": [
+      {
+        "name": "panel",
+        "value": "none",
+        "purpose": "White surfaces, pale selection states, and fine borders provide separation; the app adds no decorative shadow."
+      }
+    ],
+    "motion": [
+      {
+        "name": "session-refresh",
+        "value": "100ms",
+        "purpose": "Qt timer refreshes input meters, elapsed time, and engine status. This is functional updating, not a decorative animation."
+      },
+      {
+        "name": "playback-refresh",
+        "value": "150ms",
+        "purpose": "The native session viewer updates playback position and state; this is functional refresh, not animation."
+      },
+      {
+        "name": "tray-refresh",
+        "value": "500ms",
+        "purpose": "Updates the tray tooltip with audio and mute state."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "transcript-export-narrow",
+        "value": "600px",
+        "purpose": "Standalone HTML only: reduces sheet inset, removes outer corners, and reduces the heading. Native Qt has no web breakpoint."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Panel-only HTML translation of the native Qt primary action; these snippets are documentation previews, not application markup.",
+      "html": "<button class=\"ds-primary\">Start session</button>",
+      "css": ".ds-primary{font-family:'Segoe UI','Helvetica Neue',sans-serif;font-size:14px;border:1px solid transparent;border-radius:11px;padding:11px 17px;font-weight:500;cursor:pointer;background:#006FEE;color:#FFFFFF}.ds-primary:hover{background:#005BC4}.ds-primary:focus-visible{border:2px solid #338EF7;outline:none;}.ds-primary:disabled{background:#DFEAF8;color:#778FAE;cursor:default}"
+    },
+    {
+      "name": "Secondary button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Neutral refresh, folder, no-save, and cancel actions.",
+      "html": "<button class=\"ds-secondary\">Refresh</button>",
+      "css": ".ds-secondary{font-family:'Segoe UI','Helvetica Neue',sans-serif;font-size:14px;border:1px solid transparent;border-radius:11px;padding:11px 17px;font-weight:500;cursor:pointer;background:#F0F2F5;color:#333B49}.ds-secondary:hover{background:#E5E9EF}.ds-secondary:active{background:#D9E0EA}.ds-secondary:focus-visible{border:2px solid #338EF7;outline:none;}.ds-secondary:disabled{background:#F2F3F5;color:#A0A5AE;cursor:default}"
+    },
+    {
+      "name": "Sidebar navigation",
+      "kind": "nav",
+      "refersTo": "navigation-selected",
+      "description": "Exclusive native page selection, with blue text and a pale blue selected surface.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Voice Loop\"><button class=\"ds-nav-item ds-nav-selected\" aria-current=\"page\">Session</button><button class=\"ds-nav-item\">Audio setup</button><button class=\"ds-nav-item\">Recordings</button><button class=\"ds-nav-item\">Preferences</button></nav>",
+      "css": ".ds-nav{display:flex;flex-direction:column;gap:8px;width:158px;background:#FFFFFF}.ds-nav-item{font-family:'Segoe UI','Helvetica Neue',sans-serif;font-size:14px;border:1px solid transparent;border-radius:11px;padding:11px 17px;font-weight:500;cursor:pointer;text-align:left;padding:12px 16px;background:transparent;color:#626977}.ds-nav-item:hover{background:#F4F6F9}.ds-nav-item.ds-nav-selected{background:#EAF2FF;color:#005BC4;font-weight:600}.ds-nav-item:focus-visible{border:2px solid #338EF7;outline:none;}.ds-nav-item.ds-nav-selected{border:1px solid #B3D3FA}"
+    },
+    {
+      "name": "Setup level segments",
+      "kind": "nav",
+      "refersTo": "segment-selected",
+      "description": "Simple and Advanced are exclusive modes; the active segment sits white on a gray tray.",
+      "html": "<div class=\"ds-segments\" role=\"group\" aria-label=\"Setup level\"><button class=\"ds-segment ds-segment-selected\" aria-pressed=\"true\">Simple</button><button class=\"ds-segment\" aria-pressed=\"false\">Advanced</button></div>",
+      "css": ".ds-segments{display:inline-flex;gap:3px;padding:4px;background:#F0F2F5;border-radius:11px}.ds-segment{font-family:'Segoe UI','Helvetica Neue',sans-serif;font-size:14px;border:1px solid transparent;border-radius:11px;padding:11px 17px;font-weight:500;cursor:pointer;padding:7px 16px;background:transparent;color:#626977;border-radius:8px}.ds-segment.ds-segment-selected{background:#FFFFFF;color:#20242D}.ds-segment:focus-visible{border:2px solid #338EF7;outline:none;}"
+    },
+    {
+      "name": "Device dropdown",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "Read-only device selection with a label, native focus state, and vector dropdown arrow.",
+      "html": "<label class=\"ds-field-label\" for=\"ds-device\">Microphone</label><div class=\"ds-field-wrap\"><select class=\"ds-field\" id=\"ds-device\" aria-label=\"Microphone\"><option>No devices found</option></select><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\" width=\"14\" height=\"14\" aria-hidden=\"true\"><path d=\"m4 6 4 4 4-4\" fill=\"none\" stroke=\"#697386\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></div>",
+      "css": ".ds-field-label{font-family:'Segoe UI','Helvetica Neue',sans-serif;font-size:14px;display:block;margin-bottom:8px;font-size:13px;font-weight:600;color:#20242D}.ds-field-wrap{position:relative}.ds-field-wrap svg{position:absolute;right:15px;top:50%;transform:translateY(-50%);pointer-events:none}.ds-field{font-family:'Segoe UI','Helvetica Neue',sans-serif;font-size:14px;appearance:none;width:100%;background:#F4F5F7;color:#20242D;border:1px solid #E5E8ED;border-radius:11px;padding:10px 46px 10px 16px;min-height:43px}.ds-field:hover{background:#EDEFF3;border-color:#CDD4DF}.ds-field:focus-visible{border:2px solid #338EF7;outline:none;}.ds-field:disabled{color:#626977;background:#F4F5F7}"
+    },
+    {
+      "name": "Status badge",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "A neutral status label whose text, rather than its color, states recording or setup readiness.",
+      "html": "<span class=\"ds-badge\" role=\"status\">Not recording</span>",
+      "css": ".ds-badge{font-family:'Segoe UI','Helvetica Neue',sans-serif;font-size:14px;display:inline-block;background:#ECEEF2;color:#596170;border-radius:12px;padding:7px 12px;font-size:12px}"
+    },
+    {
+      "name": "Content card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "White bordered group for device choices, meeting guidance, setup, recordings, or preferences.",
+      "html": "<section class=\"ds-card\"><h2 class=\"ds-card-title\">Audio devices</h2><p class=\"ds-card-copy\">Choose what you speak into and listen through.</p></section>",
+      "css": ".ds-card{font-family:'Segoe UI','Helvetica Neue',sans-serif;font-size:14px;background:#FFFFFF;color:#20242D;border:1px solid #E9EBF0;border-radius:20px;padding:18px 22px;box-shadow:none}.ds-card-title{font-size:18px;font-weight:600;margin:0 0 5px}.ds-card-copy{font-size:14px;color:#626977;margin:0}"
+    },
+    {
+      "name": "Input level meter",
+      "kind": "custom",
+      "description": "Thin functional meter for Microphone or Meeting audio. The preview is idle and does not imply recording.",
+      "html": "<div class=\"ds-meter-label\"><span>Microphone</span><span>—</span></div><div class=\"ds-meter\" role=\"meter\" aria-label=\"Microphone level\" aria-valuemin=\"0\" aria-valuemax=\"100\" aria-valuenow=\"0\"><span class=\"ds-meter-fill\"></span></div>",
+      "css": ".ds-meter-label{font-family:'Segoe UI','Helvetica Neue',sans-serif;font-size:14px;display:flex;justify-content:space-between;color:#626977;font-size:12px;margin-bottom:6px}.ds-meter{height:6px;background:#EDEFF3;border-radius:3px;overflow:hidden}.ds-meter-fill{display:block;width:0;height:100%;background:#17A673;border-radius:3px}"
+    },
+    {
+      "name": "Search field",
+      "kind": "input",
+      "refersTo": "text-field",
+      "description": "Native line-edit styling shared by library search and the masked API-key field; this preview shows search.",
+      "html": "<input class=\"ds-search\" type=\"search\" aria-label=\"Search recordings\" placeholder=\"Search contact, tool, or date\">",
+      "css": ".ds-search{font-family:'Segoe UI','Helvetica Neue',sans-serif;font-size:14px;color:#20242D;background:#F4F5F7;border:1px solid #E5E8ED;border-radius:10px;padding:11px 13px;width:100%}.ds-search::placeholder{color:#626977}.ds-search:focus-visible{border:2px solid #338EF7;outline:none}"
+    },
+    {
+      "name": "Floating controls",
+      "kind": "custom",
+      "description": "Documentation translation of the compact, idle native panel. Expanded mode adds tool/contact fields and the storage path. Window opacity is user-set from 65–100%; panel actions here are visual previews.",
+      "html": "<section class=\"ds-floating\" aria-label=\"Voice Loop controls\"><header class=\"ds-floating-header\"><span class=\"ds-floating-mark\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 10v4M7 6v12M12 3v18M17 6v12M21 10v4\"/></svg></span><strong>Voice Loop</strong><span class=\"ds-floating-space\"></span><button class=\"ds-floating-icon\" aria-label=\"Expand meeting details\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 10 6 6 6-6\"/></svg></button><button class=\"ds-floating-icon\" aria-label=\"Minimize to tray\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M5 17h14\"/></svg></button><button class=\"ds-floating-icon\" aria-label=\"Open Voice Loop\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M14 3h7v7M21 3l-9 9M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5\"/></svg></button></header><div class=\"ds-floating-state\"><span>Off · ready when you are</span><span class=\"ds-floating-time\">00:00</span></div><div class=\"ds-floating-actions\"><select class=\"ds-floating-mode\" aria-label=\"Session recording mode\"><option>Route only</option><option>Record too</option></select><button class=\"ds-floating-power\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 2v10M6 5a9 9 0 1 0 12 0\"/></svg>Turn on</button><button class=\"ds-floating-button\" aria-pressed=\"false\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"9\" y=\"2\" width=\"6\" height=\"13\" rx=\"3\"/><path d=\"M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8\"/></svg>Mute</button></div><footer class=\"ds-floating-footer\"><button class=\"ds-floating-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z\"/></svg>Recordings</button><button class=\"ds-floating-icon\" aria-label=\"Preferences and opacity\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"17\" height=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 6h16M4 12h16M4 18h16\"/><circle cx=\"9\" cy=\"6\" r=\"2\" fill=\"white\"/><circle cx=\"15\" cy=\"12\" r=\"2\" fill=\"white\"/><circle cx=\"8\" cy=\"18\" r=\"2\" fill=\"white\"/></svg></button></footer></section>",
+      "css": ".ds-floating{font-family:'Segoe UI','Helvetica Neue',sans-serif;font-size:14px;color:#20242D;width:380px;padding:16px 20px 18px;background:#FAFCFF;border:1px solid #DCE4EF;border-radius:20px;display:flex;flex-direction:column;gap:15px;box-shadow:none}.ds-floating-header,.ds-floating-actions,.ds-floating-state,.ds-floating-footer{display:flex;align-items:center;gap:8px}.ds-floating-header strong{font-size:19px;font-weight:700}.ds-floating-mark{color:#006FEE}.ds-floating-space{flex:1}.ds-floating-state,.ds-floating-footer{justify-content:space-between}.ds-floating-state{color:#626977}.ds-floating-time{font-family:Consolas,Menlo,monospace;font-size:23px;color:#20242D}.ds-floating-button,.ds-floating-power{font-family:'Segoe UI','Helvetica Neue',sans-serif;font-size:14px;font-weight:500;border:1px solid transparent;border-radius:11px;padding:11px 17px;display:inline-flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap}.ds-floating-button{background:#F0F2F5;color:#333B49}.ds-floating-button:hover{background:#E5E9EF}.ds-floating-button:active{background:#D9E0EA}.ds-floating-power{background:#006FEE;color:white}.ds-floating-power:hover{background:#005BC4}.ds-floating-icon{display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:8px;padding:3px;background:transparent;color:#697386;cursor:pointer}.ds-floating-icon:hover{background:#EAF2FF}.ds-floating-mode{font-family:'Segoe UI','Helvetica Neue',sans-serif;font-size:14px;color:#20242D;background:#F4F5F7;border:1px solid #E5E8ED;border-radius:11px;padding:10px 16px;min-width:0;flex:1}.ds-floating-mode:hover{background:#EDEFF3;border-color:#CDD4DF}.ds-floating-mode:disabled{color:#626977}.ds-floating-button:focus-visible,.ds-floating-power:focus-visible,.ds-floating-icon:focus-visible,.ds-floating-mode:focus-visible{border:2px solid #338EF7;outline:none}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Clean, modern native desktop",
+    "overview": "Voice Loop v0.3 extends the user's confirmed clean, modern, HeroUI-inspired\ndirection to native PySide6 widgets. A pale gray workspace, white surfaces, and\nblue actions make routing choices easy to scan. The system feels calm and\npractical, with generous space around controls and brief explanations beside\nunfamiliar audio concepts. HeroUI supplies the visual reference; Qt Fusion and\nthe stylesheet implement the interface.\n\nThe shipped source is `src/voiceloop/ui.py`, `src/voiceloop/ui_extras.py`,\n`src/voiceloop/desktop.py`, and `src/voiceloop/transcript_html.py`, with authored SVG\npaths and resources. This refresh preserves the incumbent Qt system and records\nits floating controls, preferences, library, and transcript viewer. Seven native\nWindows screenshots in `.impeccable/review/v03/` show expanded and compact\ncontrols, off and muted recording states, two library sizes, preferences, and a\ntranscript with synthetic content. They establish visual evidence, not hardware\nor cloud-service validation. macOS and Linux rendering remains unverified.\n\nThe extension sidecar `.impeccable/design.json` contains panel previews translated\nfrom native controls. Its HTML/CSS snippets are documentation, not application\nmarkup; generated tonal ramps are display aids rather than shipped color scales.",
+    "keyCharacteristics": [
+      "White, gently rounded panels on a quiet gray workspace.",
+      "Blue actions and selection states; green reserved for audio level meters.",
+      "Native keyboard controls with visible focus and contextual help.",
+      "Explicit recording state, with compact floating and tray access to sessions."
+    ],
+    "rules": [
+      {
+        "name": "The Written State Rule",
+        "body": "Recording, no-save activity, setup readiness, and errors must be named in text; neither blue nor green establishes those states. Mute has both a checked treatment and an explicit Unmute action label.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "**Do** preserve the white/gray hierarchy and blue interaction palette.",
+      "**Do** keep recording status visible and provide session access through floating/tray controls when the library hides the main transport.",
+      "**Do** expose audio terminology through clear labels and keyboard-accessible help.",
+      "**Do** retain full device names in tooltips when a selector cannot display them.",
+      "**Do** preserve the visible no-save mode and the main Start session dialog's Cancel-first behavior.",
+      "**Do** use the short meeting-facing names VoiceLoop Mic and VoiceLoop Speaker.",
+      "**Do** pair checked controls and audio activity with explicit action and status text.",
+      "**Do** keep tag metadata distinct from diarization labels and upload choices explicit."
+    ],
+    "donts": [
+      "**Don't** use meter color as evidence that recording is enabled or saved.",
+      "**Don't** expand Simple into a list of virtual devices or channel assignments.",
+      "**Don't** apply a manual DPI multiplier on top of Qt's logical-coordinate layout.",
+      "**Don't** add decorative animation or raster artwork to this utility hierarchy.",
+      "**Don't** claim macOS/Linux visual parity from Windows screenshots alone."
+    ]
+  }
+}
