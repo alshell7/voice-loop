@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QPalette
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QCompleter,
@@ -156,6 +157,11 @@ class FloatingControls(QWidget):
         self.mute.clicked.connect(app.toggle_mute)
         controls.addWidget(self.mute)
         body.addLayout(controls)
+        self.browser_event = label("", "small", True)
+        self.browser_event.setTextFormat(Qt.TextFormat.PlainText)
+        self.browser_event.setAccessibleName("Browser call detection status")
+        self.browser_event.hide()
+        body.addWidget(self.browser_event)
         self.details = QWidget()
         details = QVBoxLayout(self.details)
         details.setContentsMargins(0, 0, 0, 0)
@@ -164,7 +170,7 @@ class FloatingControls(QWidget):
         self.tool = search_combo("Meeting tool", TOOLS, "Tool · Zoom, Meet, Teams…")
         self.tool.setCurrentText(app.settings.meeting_tool)
         self.tool.setToolTip(
-            "Tag the tool used for this session. This is your label, not automatic call detection."
+            "Tag manual sessions here. The paired Chrome extension fills this in for detected calls."
         )
         details.addWidget(self.tool)
         self.contact = search_combo("Contact name", app.contacts.names(), "Search or add a contact")
@@ -194,7 +200,7 @@ class FloatingControls(QWidget):
         preferences = QToolButton()
         preferences.setIcon(icon("settings", size=18))
         preferences.setAccessibleName("Preferences and opacity")
-        preferences.setToolTip("Preferences · opacity, startup, and transcription")
+        preferences.setToolTip("Preferences · browser calls, opacity, startup, and transcription")
         preferences.clicked.connect(lambda: app.show_main(3))
         bottom.addWidget(preferences)
         body.addLayout(bottom)
@@ -313,6 +319,20 @@ class FloatingControls(QWidget):
         folder = str(self.app.settings.recordings)
         self.storage.setText("Storage · " + folder)
         self.storage.setToolTip(folder)
+        browser_text = (
+            self.app.browser_feedback or self.app.browser_status
+            if self.app.settings.browser_detection_enabled
+            else ""
+        )
+        if browser_text != self.browser_event.toolTip():
+            # Long contact and meeting names remain available in the tooltip;
+            # the always-visible event summary keeps compact controls compact.
+            self.browser_event.setText(
+                browser_text[:190] + ("…" if len(browser_text) > 190 else "")
+            )
+            self.browser_event.setToolTip(browser_text)
+            self.browser_event.setVisible(bool(browser_text))
+            self.resize_contents()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -371,6 +391,61 @@ class Preferences(QWidget):
         body.addWidget(self.opacity)
         content.addWidget(panel)
         panel, body = card()
+        body.addWidget(label("Browser calls", "sectionTitle"))
+        body.addWidget(
+            label(
+                "Connect the Voice Loop Chrome extension to detect Zoho Cliq calls and joined Google Meet meetings.",
+                "muted",
+                True,
+            )
+        )
+        self.browser_enabled = QCheckBox("Detect calls from the paired Chrome extension")
+        self.browser_enabled.setChecked(app.settings.browser_detection_enabled)
+        self.browser_enabled.setToolTip(
+            "Opt in to local call events. Ringing never starts recording. Turn this off to disconnect Chrome and finish any recording it started."
+        )
+        self.browser_enabled.toggled.connect(app.configure_browser_detection)
+        body.addWidget(self.browser_enabled)
+        self.browser_automatic = QCheckBox("Automatically record connected calls")
+        self.browser_automatic.setChecked(app.settings.browser_auto_record)
+        self.browser_automatic.setToolTip(
+            "Applies to the next connected call. Incoming and outgoing Cliq calls must be answered; Meet must be joined. Existing manual sessions are kept."
+        )
+        self.browser_automatic.toggled.connect(app.set_browser_auto_record)
+        body.addWidget(self.browser_automatic)
+        body.addWidget(
+            label(
+                "When automatic recording is off, a popup asks after the call connects. "
+                "Turning a recording off keeps it off for the rest of that call. "
+                "Transcription and uploads follow their separate preference below.",
+                "small",
+                True,
+            )
+        )
+        body.addWidget(label("Extension pairing code", "fieldLabel"))
+        row = QHBoxLayout()
+        self.browser_token = QLineEdit()
+        self.browser_token.setReadOnly(True)
+        self.browser_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.browser_token.setAccessibleName("Extension pairing code")
+        self.browser_token.setPlaceholderText("Enable browser detection to pair")
+        self.browser_token.setToolTip(
+            "Copy this code into the Voice Loop Chrome extension. It authorizes only local call events, not access to recordings or API keys."
+        )
+        row.addWidget(self.browser_token, 1)
+        self.browser_copy = QPushButton("Copy code")
+        self.browser_copy.clicked.connect(self.copy_browser_token)
+        self.browser_copy_timer = QTimer(self)
+        self.browser_copy_timer.setSingleShot(True)
+        self.browser_copy_timer.timeout.connect(lambda: self.browser_copy.setText("Copy code"))
+        row.addWidget(self.browser_copy)
+        body.addLayout(row)
+        self.browser_status = label("", "small", True)
+        self.browser_status.setTextFormat(Qt.TextFormat.PlainText)
+        body.addWidget(self.browser_status)
+        content.addWidget(panel)
+        self.refresh_browser()
+        panel, body = card()
         body.addWidget(label("OpenAI transcription", "sectionTitle"))
         body.addWidget(
             label(
@@ -425,6 +500,22 @@ class Preferences(QWidget):
             )
         )
         content.addWidget(panel)
+
+    def refresh_browser(self):
+        enabled = self.app.settings.browser_detection_enabled
+        self.browser_automatic.setEnabled(enabled)
+        token = self.app.browser_bridge.pairing_token if self.app.browser_bridge else ""
+        if token != self.browser_token.text():
+            self.browser_token.setText(token)
+        self.browser_copy.setEnabled(enabled and bool(token))
+        self.browser_status.setText(self.app.browser_status)
+
+    def copy_browser_token(self):
+        token = self.browser_token.text()
+        if token:
+            QApplication.clipboard().setText(token)
+            self.browser_copy.setText("Copied")
+            self.browser_copy_timer.start(1800)
 
     def change_startup(self, enabled):
         from voiceloop.startup import set_enabled

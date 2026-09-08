@@ -8,6 +8,23 @@ on:
 permissions:
   contents: read
 jobs:
+  extension:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: extension/chrome/package-lock.json
+      - run: npm ci --ignore-scripts --prefix extension/chrome
+      - name: Test Chrome call detection and delivery
+        run: node --test extension/chrome/tests/*.test.mjs
+      - name: Verify extension release archive
+        run: python3 scripts/build_extension.py
   test:
     timeout-minutes: 15
     strategy:
@@ -38,3 +55,4 @@ jobs:
       - run: python -m ruff format --check .
       - run: python -m pytest
       - run: python scripts/smoke_audio.py
+      - run: python scripts/smoke_browser.py

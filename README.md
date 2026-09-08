@@ -6,7 +6,8 @@ Created and maintained by **[alshell7](https://github.com/alshell7)** · [Downlo
 
 Voice Loop is an open-source Python desktop app for Windows, macOS, and Linux.
 Choose your microphone and speaker, then decide whether to save each session.
-No Voice Loop account, telemetry, or web server. Audio stays local unless you
+No Voice Loop account or telemetry. Optional browser detection uses an authenticated
+connection on your own computer. Audio stays local unless you
 choose OpenAI transcription or explicitly enable automatic transcription.
 
 ## Install and use
@@ -36,8 +37,8 @@ own duration in the library.
 - **Mute / Unmute** silences the microphone feed and local microphone recording.
   In Direct capture, mute the meeting app too: it uses the physical mic directly.
 - Tag the meeting tool and search or add a **contact** before turning on. New
-  contact names save on this device. Tool labels are manual; call detection is
-  not implemented. Tags can be edited later in the session viewer.
+  contact names save on this device. The optional Chrome extension fills these
+  details for Zoho Cliq and Google Meet. Tags can be edited later in the session viewer.
 - Collapse meeting details for compact controls; minimize to the system tray.
   Drag the header to move the panel. Set opacity (65–100%) in **Preferences**.
 - Voice Loop runs at login by default. Disable **Launch at login** in Preferences.
@@ -56,7 +57,27 @@ own duration in the library.
 
 The main Session screen retains **Start session** with its explicit recording
 choice dialog. Startup registration is per user (Windows Run entry, macOS
-LaunchAgent, or Linux XDG autostart); it never starts audio capture.
+LaunchAgent, or Linux XDG autostart). Launching the app alone does not start audio;
+opt-in browser automation can start recording when a connected call is detected.
+
+### Connected-call recording in Chrome
+
+The companion extension is in [`extension/chrome`](extension/chrome). It detects
+Zoho Cliq incoming/outgoing calls and Google Meet meetings without joining as a
+bot. Ringing and dialing update the floating panel; recording is offered only
+after a Cliq call is answered or a Meet meeting is joined.
+
+Enable browser detection in **Preferences**, load the unpacked extension in Chrome,
+and pair it using the local pairing token. Keep **Record connected calls
+automatically** off to receive a recording popup, or enable it for automatic
+recording. Call details are saved with the session. Ending the detected call
+finishes recordings started by that call; existing manual sessions remain yours
+to control. Teams and other providers are not supported yet.
+
+See [browser setup, permissions, and troubleshooting](docs/BROWSER_EXTENSION.md).
+The extension sends call state and meeting/contact metadata locally; it never
+captures browser audio or uploads recordings. Browser automation and automatic
+OpenAI transcription are separate preferences.
 
 Simple automatically uses the named virtual bridge when both paths are ready.
 Without virtual devices, Windows/Linux can use direct capture of your chosen

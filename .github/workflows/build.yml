@@ -87,6 +87,8 @@ jobs:
           for target in windows-x64-setup.exe macos-arm64.pkg macos-x64.pkg; do
             test -f "release-assets/VoiceLoop-${version}-${target}"
           done
+          python3 scripts/build_extension.py
+          cp dist/*-chrome.zip dist/*-chrome.zip.sha256 release-assets/
           (cd release-assets && sha256sum --check -- *.sha256)
           python3 scripts/release_notes.py --output release-notes.md
           if ! gh release view "$tag" >/dev/null 2>&1; then

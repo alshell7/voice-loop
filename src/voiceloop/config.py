@@ -44,6 +44,8 @@ class Settings:
     contact_name: str = ""
     openai_model: str = "gpt-4o-transcribe-diarize"
     auto_transcribe: bool = False
+    browser_detection_enabled: bool = False
+    browser_auto_record: bool = False
 
     @property
     def recordings(self) -> Path:

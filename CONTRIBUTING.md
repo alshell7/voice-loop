@@ -8,6 +8,10 @@ python -m pytest
 python -m ruff check .
 python -m ruff format --check .
 python scripts/smoke_audio.py
+python scripts/smoke_browser.py
+npm ci --ignore-scripts --prefix extension/chrome
+node --test extension/chrome/tests/*.test.mjs
+python scripts/build_extension.py
 ```
 
 Fork [alshell7/voice-loop](https://github.com/alshell7/voice-loop), make a focused
@@ -18,9 +22,13 @@ lifecycle, and security changes. Maintainer: **alshell7**.
 CI checks Windows, macOS, and Linux. Merging into `main` automatically publishes
 a Windows/macOS prerelease after all release checks pass; see
 [docs/RELEASING.md](docs/RELEASING.md). Version changes must update both package
-metadata and `src/voiceloop/__init__.py`, plus the changelog.
+metadata, `src/voiceloop/__init__.py`, and `extension/chrome/manifest.json`, plus the changelog.
 
-- Keep recording opt-in per session and cloud uploads separately opt-in.
+- Keep recording opt-in per session or through the explicit connected-call
+  auto-record preference. Cloud uploads remain separately opt-in.
+- Browser changes must preserve the answered/joined gate, manual-session ownership,
+  authenticated loopback transport, and stale-event handling. Do not inspect chat
+  history or include real contact data in fixtures.
 - Keep native audio work away from the UI thread and keep queues bounded.
 - Never silently switch an unavailable device to a different microphone.
 - Preserve channel labels, timestamps, silence, and readable WAV output on errors.

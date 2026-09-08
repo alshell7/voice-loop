@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- Add a Chrome companion for attended Zoho Cliq incoming/outgoing calls and
+  joined Google Meet meetings, with local pairing and no browser audio capture.
+- Add opt-in connected-call automatic recording, a recording prompt when it is
+  off, and live call status in the floating controls.
+- Save call direction, contact details, meeting title, and browser source with
+  sessions. Finish recordings owned by an ended call; preserve manual sessions.
+- Ship the unpacked extension source and a release ZIP with setup documentation.
+
 ## 0.3.2
 
 - Fix unreadable meeting-tool and contact dropdowns under dark system palettes.

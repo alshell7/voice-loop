@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Voice Loop</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <svg class="mark" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 10v4M7 6v12M12 3v18M17 6v12M21 10v4"/></svg>
+    <h1>Voice Loop</h1>
+  </header>
+  <main>
+    <div class="connection" role="status" aria-live="polite">
+      <span id="indicator" aria-hidden="true"></span>
+      <span id="status">Checking connection…</span>
+    </div>
+    <section id="pairing">
+      <h2>Connect your desktop app</h2>
+      <p>In Voice Loop, open <strong>Preferences → Browser calls</strong> and copy your pairing code.</p>
+      <form id="pair-form">
+        <label for="token">Pairing code</label>
+        <input id="token" name="token" type="password" autocomplete="off" spellcheck="false" required minlength="24" maxlength="200" aria-describedby="pairing-help" placeholder="Paste your code">
+        <p class="hint" id="pairing-help">Stored only in this Chrome profile.</p>
+        <button class="primary" type="submit" id="connect">Connect to Voice Loop</button>
+      </form>
+    </section>
+    <section id="paired" hidden>
+      <h2 id="call-heading">Ready for your next call</h2>
+      <p id="call-detail">Zoho Cliq calls and Google Meet meetings appear in your floating controls.</p>
+      <dl id="call-details" hidden>
+        <div><dt>Tool</dt><dd id="call-provider"></dd></div>
+        <div><dt>Status</dt><dd id="call-state"></dd></div>
+      </dl>
+      <p class="note">Recording follows your desktop preferences and starts only after a call is attended or a meeting is joined.</p>
+      <div class="actions">
+        <button type="button" id="recheck">Check connection</button>
+        <button type="button" id="disconnect" class="quiet">Disconnect</button>
+      </div>
+    </section>
+    <p id="error" role="alert" hidden></p>
+    <footer>Call details stay on this device. This extension does not capture audio or read your chats.</footer>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Voice Loop — call companion",
+  "version": "0.4.0",
+  "description": "Connect attended Zoho Cliq calls and joined Google Meet meetings to your local Voice Loop app.",
+  "minimum_chrome_version": "120",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": ["http://127.0.0.1:49321/*"],
+  "background": {"service_worker": "background.js", "type": "module"},
+  "action": {"default_title": "Voice Loop", "default_popup": "popup.html"},
+  "content_scripts": [
+    {
+      "matches": ["https://cliq.zoho.com/*", "https://cliq.zoho.eu/*", "https://cliq.zoho.in/*", "https://cliq.zoho.com.au/*", "https://cliq.zoho.jp/*", "https://cliq.zoho.ca/*", "https://cliq.zoho.com.cn/*", "https://cliq.zoho.sa/*", "https://meet.google.com/*"],
+      "js": ["detector.js", "content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

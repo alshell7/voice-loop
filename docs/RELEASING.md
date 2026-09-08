@@ -14,7 +14,7 @@ from GitHub Actions → Release Windows and macOS → Run workflow.
 2. Native runners build Windows x64, macOS arm64 (Apple Silicon), and macOS x64
    (Intel) installers using Python 3.13. Each also runs tests and frozen-app UI checks.
 3. Only when every job passes, the publish job verifies all three installers and
-   their SHA-256 files, creates a draft, uploads the complete asset set, and
+   their SHA-256 files, builds the Chrome companion ZIP, creates a draft, uploads the complete asset set, and
    publishes it as a prerelease.
 
 The tag is `v<version>-build.<run number>`, for example `v0.3.2-build.1`.
@@ -28,7 +28,8 @@ Expected assets:
 - `VoiceLoop-<version>-windows-x64-setup.exe`
 - `VoiceLoop-<version>-macos-arm64.pkg`
 - `VoiceLoop-<version>-macos-x64.pkg`
-- A matching `.sha256` file for each installer.
+- `VoiceLoop-<version>-chrome.zip`
+- A matching `.sha256` file for each download.
 
 GitHub Actions must be enabled. No personal access token or OpenAI key is needed:
 the publish job uses GitHub's temporary `GITHUB_TOKEN` with `contents: write`.
@@ -38,7 +39,8 @@ mock responses, not private recordings or paid API calls.
 
 ## Version changes and failures
 
-Update both `pyproject.toml` and `src/voiceloop/__init__.py` together, then add the
+Update `pyproject.toml`, `src/voiceloop/__init__.py`, and
+`extension/chrome/manifest.json` together, then add the
 user-visible changes to `CHANGELOG.md`. Submit a PR and review the CI result
 before merging. Pushing any main commit also publishes a build, including docs changes.
 
@@ -59,6 +61,7 @@ Install `python -m pip install -e ".[dev]"`, then run the build script on its ta
 ```sh
 python scripts/build_windows.py
 python scripts/build_macos.py
+python scripts/build_extension.py
 ```
 
 macOS requires Xcode command-line tools. Its app copy preserves framework

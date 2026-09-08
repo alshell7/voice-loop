@@ -1,7 +1,53 @@
 # Verification record
 
 Local host: Windows 11 x64, Python 3.13.14, SoundCard 0.4.6, NumPy 2.5.3,
-PySide6 Essentials 6.11.2, keyring 25.7.0. Updated for Voice Loop 0.3.2.
+PySide6 Essentials 6.11.2, keyring 25.7.0. Updated for Voice Loop 0.4.0.
+
+## Browser companion checks (0.4.0)
+
+- **175 Python tests** and **35 Node tests** pass locally. Ruff lint/format,
+  workflow syntax checks, the Windows installer build, and the frozen native Qt
+  smoke check also pass for 0.4.0.
+- Authenticated HTTP bridge tests cover local-only binding, pairing persistence,
+  Host/Origin validation, malformed/stale events, request/queue bounds, concurrent
+  clients, shutdown, and requests racing with disable/re-enable.
+- Lifecycle and Qt tests cover unanswered incoming/outgoing calls, explicit
+  consent, automatic recording, ended/timeout handling, manual-session ownership,
+  manual-stop suppression, delayed event queues, successive calls, device-switch
+  races, and automatic recording during a nested manual-consent event loop.
+- **35 Node tests** include worker restart/offline delivery, safe URL metadata,
+  tab close, pairing, and actual `content.js` execution against sanitized HTML.
+  Outgoing Cliq ringing and joined Meet fixtures derive from observed live DOM;
+  incoming/answered fixtures are representative and are labeled accordingly.
+- `scripts/smoke_browser.py` passes real authenticated HTTP events through the
+  Qt app and real spawned audio workers using generated 220/660 Hz tones. It
+  verifies no ringing capture, accepted prompts, automatic recording, call-end
+  saving, stereo channel frequencies, manifest metadata, and worker cleanup.
+  It opens no microphones, changes no personal settings, and uploads nothing.
+- Native Windows screenshots confirm browser preferences, masked pairing,
+  connected status in normal/compact floating controls, and the recording popup.
+- The extension was loaded into the user's Chrome and its real pairing popup
+  successfully connected to the desktop loopback listener. Its unpaired/paired
+  appearance was inspected.
+- **Live Google Meet checks passed** on 2026-09-08: the preview did not prompt or
+  record, joining opened the recording prompt, accepting started recording, and
+  leaving saved and closed the session. A second join with automatic recording
+  enabled started without a prompt and stopped on leaving. Both stereo files
+  match their manifest frame counts (1,238,343 and 614,445 frames) and contain
+  the meeting code, URL, unique call ID, and correct recording trigger. The off
+  timer reset to zero. Automatic recording was restored to off afterward.
+  These were solo meetings; they verify detection and recording boundaries,
+  not remote-participant audio quality. No transcription or upload was performed.
+- **Live outgoing Cliq check passed** on 2026-09-08: ringing displayed the other
+  contact in the floating controls without starting capture. After the recipient
+  answered, a visible elapsed timer and the recording popup established the
+  connected transition. Accepting produced a stereo recording with the correct
+  contact, outgoing direction, and prompt trigger. Ending the call automatically
+  saved it; the WAV and manifest both contain 733,702 frames. Incoming live
+  acceptance remains pending; incoming fixtures are representative.
+
+The earlier verification below records prior release checks. Consult GitHub
+Actions for the native/macOS result of the current commit.
 
 ## Automated checks
 

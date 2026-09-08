@@ -3,6 +3,7 @@
 import html
 import math
 import sys
+import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -34,6 +35,7 @@ from PySide6.QtWidgets import (
 
 from voiceloop import __version__
 from voiceloop.activity import QUIET_SECONDS
+from voiceloop.call_detection import HEARTBEAT_TIMEOUT, CallController
 from voiceloop.config import Settings
 from voiceloop.devices import (
     Device,
@@ -259,7 +261,15 @@ class ConsentDialog(QDialog):
 
 
 class App(QMainWindow):
-    def __init__(self, *, settings=None, device_provider=discover, engine=None, contacts=None):
+    def __init__(
+        self,
+        *,
+        settings=None,
+        device_provider=discover,
+        engine=None,
+        contacts=None,
+        browser_bridge=None,
+    ):
         super().__init__()
         self.settings = settings or Settings.load()
         self.device_provider = device_provider
@@ -276,6 +286,17 @@ class App(QMainWindow):
         self._handled_paths = set()
         self.silence_prompt = None
         self._silence_snooze_until = 0.0
+        self.browser_bridge = browser_bridge
+        self.browser_controller = CallController(auto_record=self.settings.browser_auto_record)
+        self.browser_prompt = None
+        self._browser_recording_event = None
+        self._browser_finishing = False
+        self._browser_deferred_events = {}
+        self._browser_deferred_received = {}
+        self._session_intent = 0
+        self._browser_runtime_enabled = False
+        self.browser_status = "Browser detection is off"
+        self.browser_feedback = ""
         self.devices = Devices([], [])
         self.last_state = "idle"
         self.closing = False
@@ -778,19 +799,60 @@ class App(QMainWindow):
         config.validate()
         return config
 
-    def start(self, _checked=False, *, record=None):
-        if self.engine.active or self.install_future:
-            return
+    def start(self, _checked=False, *, record=None, browser_event=None):
+        if self.closing or self.engine.active or self.install_future:
+            return False
         try:
-            if self.floating:
+            if self.floating and browser_event is None:
                 self.floating.save_tags()
             config = self.configuration()
             if record is None:
                 dialog = ConsentDialog(self.settings.recordings, config.mode == "bridge", self)
                 dialog.exec()
+                # Qt keeps timers and browser events running inside this modal
+                # event loop. A connected call may already own a new session.
+                # Preserve its ownership and metadata instead of resuming the
+                # stale manual start after consent closes.
+                if self.closing or self.engine.active or self.install_future:
+                    return False
                 if dialog.choice is None:
-                    return
+                    return False
                 record = dialog.choice
+            if browser_event is None and self.browser_prompt is not None:
+                pending = self.browser_controller.active_event
+                if pending:
+                    self.apply_browser_actions(
+                        self.browser_controller.respond(pending.call_id, False)
+                    )
+            if browser_event is None and self.browser_controller.owned_call_id is not None:
+                self.apply_browser_actions(self.browser_controller.session_stopped(manual=True))
+            metadata = {
+                "tool": self.settings.meeting_tool,
+                "contact": self.settings.contact_name,
+            }
+            if browser_event is not None:
+                event = browser_event
+                # Keep the full browser details in the manifest. Editable tags remain
+                # short display labels and never replace the meeting title or email.
+                metadata = {
+                    "tool": event.tool_name,
+                    "contact": event.contact_name,
+                    "contact_email": event.contact_email,
+                    "meeting_title": event.title,
+                    "call_direction": event.direction,
+                    "browser_call_id": event.call_id,
+                    "browser_url": event.url,
+                    "recording_trigger": (
+                        "browser_auto_record"
+                        if self.settings.browser_auto_record
+                        else "browser_prompt"
+                    ),
+                }
+                self.settings.meeting_tool = event.tool_name
+                self.settings.contact_name = self.contacts.remember(event.contact_name)
+                if self.floating:
+                    self.floating.tool.setCurrentText(event.tool_name)
+                    self.floating.contact.setCurrentText(self.settings.contact_name)
             self.settings.session_mode = "record" if record else "route"
             if self.floating:
                 self.floating.mode.blockSignals(True)
@@ -814,15 +876,15 @@ class App(QMainWindow):
             self.settings.save()
             for viewer in self.dialogs:
                 viewer.stop_playback()
+            self._session_intent += 1
             self.engine.start(
                 config,
                 self.settings.recordings,
                 record=record,
-                metadata={
-                    "tool": self.settings.meeting_tool,
-                    "contact": self.settings.contact_name,
-                },
+                metadata=metadata,
             )
+            self._browser_recording_event = browser_event
+            self._browser_finishing = False
             self.dismiss_silence_prompt()
             self._silence_snooze_until = 0.0
             self._run_auto = bool(record and self.settings.auto_transcribe)
@@ -830,12 +892,14 @@ class App(QMainWindow):
                 self.floating.show_notice("")
             self.status.setText("Opening your audio devices…")
             self.update_enabled()
+            return True
         except Exception as exc:
             self.status.setText("Cannot start: " + str(exc))
             if self.floating and self.floating.isVisible():
                 self.floating.show_notice(str(exc))
             else:
                 QMessageBox.warning(self, "Cannot start session", str(exc))
+            return False
 
     def update_enabled(self):
         active = self.engine.active or self.install_future is not None
@@ -878,6 +942,14 @@ class App(QMainWindow):
             elif state in ("starting", "stopping"):
                 self.badge.setText("Starting…" if state == "starting" else "Finishing…")
             else:
+                if self._browser_recording_event is not None and not self.pending_switch:
+                    event, self._browser_recording_event = self._browser_recording_event, None
+                    actions = (
+                        self.browser_controller.recording_failed(event.call_id)
+                        if self.engine.error
+                        else self.browser_controller.session_stopped(manual=True)
+                    )
+                    self.apply_browser_actions(actions)
                 self.badge.setText("Session stopped" if self.engine.error else "Not recording")
                 self.status.setText(
                     self.engine.error
@@ -911,8 +983,15 @@ class App(QMainWindow):
                         )
                     self.physical_changed()
                     if not self.engine.error and record is not None:
-                        QTimer.singleShot(0, lambda: self.start(record=record))
+                        event = self._browser_recording_event
+                        intent = self._session_intent
+                        QTimer.singleShot(
+                            0, lambda: self.resume_switched_session(record, event, intent)
+                        )
             self.last_state = state
+        # Finish bookkeeping for the prior recording before a browser event can
+        # start the next one and replace the engine's saved path or error.
+        self.tick_browser()
         self.tick_transcription()
         if self.install_future and self.install_future.done():
             future, self.install_future = self.install_future, None
@@ -974,6 +1053,185 @@ class App(QMainWindow):
         except OSError as exc:
             self.status.setText("Could not save preferences: " + str(exc))
 
+    def configure_browser_detection(self, enabled=None):
+        """Open the local bridge only in the real desktop runtime and when opted in."""
+        if enabled is not None:
+            self.settings.browser_detection_enabled = enabled
+            self.save_preferences()
+        if not self.settings.browser_detection_enabled:
+            self.apply_browser_actions(self.browser_controller.reset())
+            self._browser_deferred_events.clear()
+            self._browser_deferred_received.clear()
+            self.dismiss_browser_prompt()
+            if self.browser_bridge is not None:
+                self.browser_bridge.stop()
+                self.browser_bridge = None
+            self.browser_status = "Browser detection is off"
+            self.browser_feedback = ""
+        elif self._browser_runtime_enabled:
+            try:
+                if self.browser_bridge is None:
+                    from voiceloop.browser_bridge import BrowserBridge
+
+                    self.browser_bridge = BrowserBridge()
+                self.browser_bridge.start()
+                self.browser_status = "Ready · listening to the paired Chrome extension"
+            except (OSError, RuntimeError, ValueError) as exc:
+                if self.browser_bridge is not None:
+                    self.browser_bridge.stop()
+                    self.browser_bridge = None
+                self.browser_status = "Cannot connect: " + str(exc)
+        else:
+            self.browser_status = "Browser detection starts with the desktop app"
+        self.preferences.refresh_browser()
+        if self.floating:
+            self.floating.refresh()
+
+    def set_browser_auto_record(self, enabled):
+        self.settings.browser_auto_record = enabled
+        self.browser_controller.auto_record = enabled
+        self.save_preferences()
+
+    def tick_browser(self):
+        if (
+            self.closing
+            or not self.settings.browser_detection_enabled
+            or self.browser_bridge is None
+        ):
+            return
+        if not self.engine.active:
+            self._browser_finishing = False
+        events, self._browser_deferred_events = self._browser_deferred_events, {}
+        received, self._browser_deferred_received = self._browser_deferred_received, {}
+        now, wall_now = time.monotonic(), time.time()
+        # The bridge queue is bounded at 128. Read it in one pass so an already
+        # queued end cannot hide behind a smaller batch of connected heartbeats.
+        for event in self.browser_bridge.drain(limit=128):
+            key = (event.provider, event.call_id)
+            previous = events.get(key)
+            if previous is not None and (
+                previous.state == "ended"
+                or event.timestamp < previous.timestamp
+                or (previous.state == "connected" and event.state in {"ringing", "dialing"})
+            ):
+                continue
+            events[key] = event
+            received[key] = now
+        # Collapse queued heartbeats to each call's newest state. If a call ended
+        # while the desktop was busy, its stale connected event must not record.
+        for key, event in events.items():
+            self.browser_status = "Connected · receiving call events from Chrome"
+            if event.state == "connected" and (
+                now - received[key] >= HEARTBEAT_TIMEOUT
+                or wall_now - event.timestamp >= HEARTBEAT_TIMEOUT
+                or event.timestamp - wall_now > 30
+            ):
+                # A slow device shutdown or busy Qt event loop must never turn
+                # a disconnected browser's old state into a new recording.
+                # Ended events still reach the controller as terminal evidence.
+                self.browser_feedback = "Browser call update expired · waiting for Chrome"
+                continue
+            if self._browser_finishing and event.state == "connected":
+                if len(self._browser_deferred_events) < 64:
+                    self._browser_deferred_events[key] = event
+                    self._browser_deferred_received[key] = received[key]
+                continue
+            self.apply_browser_actions(
+                self.browser_controller.handle(
+                    event, session_active=self.engine.active or self.install_future is not None
+                )
+            )
+        self.apply_browser_actions(self.browser_controller.tick())
+        self.preferences.refresh_browser()
+
+    def apply_browser_actions(self, actions):
+        for action in actions:
+            if action.kind == "feedback":
+                self.browser_feedback = action.message
+            elif action.kind == "dismiss_prompt":
+                self.dismiss_browser_prompt()
+            elif action.kind == "prompt_record":
+                self.ask_browser_recording(action.event)
+            elif action.kind == "start_recording":
+                # A manual recording may have begun while a prompt was visible.
+                # The controller and this final boundary both protect that session.
+                if self.closing or self.engine.active or self.install_future:
+                    self.apply_browser_actions(
+                        self.browser_controller.recording_failed(action.event.call_id)
+                    )
+                    continue
+                self.show_floating()
+                if not self.start(record=True, browser_event=action.event):
+                    self.apply_browser_actions(
+                        self.browser_controller.recording_failed(action.event.call_id)
+                    )
+            elif action.kind == "stop_recording":
+                if (
+                    self._browser_recording_event is not None
+                    and self._browser_recording_event.call_id == action.event.call_id
+                ):
+                    self.stop_session(manual=False)
+        if self.floating:
+            self.floating.refresh()
+
+    def dismiss_browser_prompt(self):
+        if self.browser_prompt is not None:
+            prompt, self.browser_prompt = self.browser_prompt, None
+            prompt.reject()
+            prompt.deleteLater()
+
+    def ask_browser_recording(self, event):
+        self.dismiss_browser_prompt()
+        self.show_floating()
+        prompt = QMessageBox(self.floating)
+        self.browser_prompt = prompt
+        prompt.setWindowTitle("Record this call?")
+        prompt.setTextFormat(Qt.TextFormat.PlainText)
+        prompt.setIcon(QMessageBox.Icon.Question)
+        detail = event.contact_name or event.title or event.tool_name
+        prompt.setText(f"{event.tool_name} call connected\n{detail}")
+        prompt.setInformativeText(
+            "Record microphone and meeting audio to your Voice Loop storage folder? "
+            "The session saves when this call ends. Make sure everyone knows you are recording."
+        )
+        prompt.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        prompt.button(QMessageBox.StandardButton.Yes).setText("Record call")
+        prompt.button(QMessageBox.StandardButton.No).setText("Not this call")
+        prompt.setDefaultButton(QMessageBox.StandardButton.No)
+        prompt.setEscapeButton(QMessageBox.StandardButton.No)
+        prompt.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
+        prompt.setWindowModality(Qt.WindowModality.NonModal)
+
+        def answered(choice):
+            if self.browser_prompt is not prompt:
+                return
+            self.browser_prompt = None
+            prompt.deleteLater()
+            # A click can be the first queued Qt event after sleep or a stall.
+            # Drain any call-end evidence and expire missing heartbeats before
+            # accepting consent, without waiting for the next timer tick.
+            self.tick_browser()
+            self.apply_browser_actions(
+                self.browser_controller.respond(
+                    event.call_id,
+                    choice == QMessageBox.StandardButton.Yes,
+                    session_active=self.engine.active or self.install_future is not None,
+                )
+            )
+
+        prompt.finished.connect(answered)
+        prompt.show()
+        prompt.raise_()
+
+    def resume_switched_session(self, record, event, intent):
+        # Call-end events and manual Turn off can arrive before Qt runs this callback.
+        if self.closing or intent != self._session_intent:
+            return
+        if event is not None and self.browser_controller.owned_call_id != event.call_id:
+            return
+        if not self.start(record=record, browser_event=event) and event is not None:
+            self.apply_browser_actions(self.browser_controller.recording_failed(event.call_id))
+
     def show_main(self, index=None):
         # clicked() supplies a bool; it must not unexpectedly switch the page.
         if type(index) is int:
@@ -1013,8 +1271,13 @@ class App(QMainWindow):
         elif self.floating:
             self.floating.show_notice("")
 
-    def stop_session(self, *, trim_silence=False):
+    def stop_session(self, *, trim_silence=False, manual=True):
+        self._session_intent += 1
         self.dismiss_silence_prompt()
+        self.dismiss_browser_prompt()
+        self._browser_finishing = self._browser_recording_event is not None and self.engine.active
+        self._browser_recording_event = None
+        self.apply_browser_actions(self.browser_controller.session_stopped(manual=manual))
         self.pending_switch = {}
         self.resume_record = None
         self.engine.stop(trim_silence=True) if trim_silence else self.engine.stop()
@@ -1188,6 +1451,7 @@ class App(QMainWindow):
             return
         self.closing = True
         self.dismiss_silence_prompt()
+        self.dismiss_browser_prompt()
         self.pending_switch = {}
         self.cancel_transcription()
         for viewer in list(self.dialogs):
@@ -1199,6 +1463,7 @@ class App(QMainWindow):
         import os
 
         self.closing = True
+        self.dismiss_browser_prompt()
         self.cancel_transcription()
         for viewer in list(self.dialogs):
             viewer.stop_playback()
@@ -1239,6 +1504,10 @@ class App(QMainWindow):
             event.ignore()
             return
         self.executor.shutdown(wait=False)
+        self.dismiss_browser_prompt()
+        if self.browser_bridge is not None:
+            self.browser_bridge.stop()
+            self.browser_bridge = None
         self.timer.stop()
         if self.floating:
             self.closing = True
@@ -1277,9 +1546,15 @@ def launch(*, background=False):
     window = App()
     instance.server.newConnection.connect(lambda: instance.activate(window))
     enable_desktop(window)
+    window._browser_runtime_enabled = True
+    window.configure_browser_detection()
     if not background:
         window.show_floating()
     elif not window.tray.isSystemTrayAvailable():
         window.show_main()
-    app.exec()
-    instance.close()
+    try:
+        app.exec()
+    finally:
+        if window.browser_bridge is not None:
+            window.browser_bridge.stop()
+        instance.close()

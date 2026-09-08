@@ -21,6 +21,10 @@ src/voiceloop/resources/voiceloop-audio-setup
 recordings/
 contacts.json
 settings.json
+browser-pairing.json
+browser_bridge.json
+browser-pairing-token
+node_modules/
 transcript*.json
 *.mp3
 *.flac
