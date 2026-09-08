@@ -6,6 +6,8 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from voiceloop import __version__
@@ -66,12 +68,28 @@ def main():
         check=True,
     )
     packages = [package]
+    installer_resources = stage / "resources"
+    installer_resources.mkdir(parents=True, exist_ok=True)
     for channels, checksum in BLACKHOLE:
         filename = f"BlackHole{channels}-0.7.1.pkg"
         path = stage / filename
         download_verified(f"https://existential.audio/downloads/{filename}", path, checksum)
         subprocess.run(["pkgutil", "--check-signature", str(path)], check=True)
-        packages.append(path)
+        # Vendor downloads are distribution archives, not component packages.
+        # Preserve their payload, scripts and PackageInfo after verifying the
+        # signed original; productbuild cannot nest distribution archives.
+        with tempfile.TemporaryDirectory(prefix="voiceloop-blackhole-") as temporary:
+            expanded = Path(temporary) / "expanded"
+            subprocess.run(["pkgutil", "--expand", str(path), str(expanded)], check=True)
+            component = stage / f"BlackHole{channels}-component.pkg"
+            subprocess.run(
+                ["pkgutil", "--flatten", str(expanded / "BlackHole.pkg"), str(component)],
+                check=True,
+            )
+            shutil.copyfile(
+                expanded / "Resources/LICENSE", installer_resources / "BlackHole-LICENSE.txt"
+            )
+            packages.append(component)
     distribution = stage / "Distribution.xml"
     subprocess.run(
         [
@@ -82,11 +100,30 @@ def main():
         ],
         check=True,
     )
+    # Carry the vendor distribution's license, system-only install and required
+    # restart into our combined installer. Driver payloads remain unchanged.
+    tree = ET.parse(distribution)
+    document = tree.getroot()
+    ET.SubElement(document, "title").text = "Voice Loop"
+    ET.SubElement(document, "license", file="BlackHole-LICENSE.txt")
+    ET.SubElement(
+        document,
+        "domains",
+        enable_anywhere="false",
+        enable_currentUserHome="false",
+        enable_localSystem="true",
+    )
+    for reference in document.findall("pkg-ref"):
+        if reference.get("id", "").startswith("audio.existential.BlackHole"):
+            reference.set("onConclusion", "RequireRestart")
+    tree.write(distribution, encoding="utf-8", xml_declaration=True)
     subprocess.run(
         [
             "productbuild",
             "--distribution",
             str(distribution),
+            "--resources",
+            str(installer_resources),
             "--package-path",
             str(stage),
             str(output),

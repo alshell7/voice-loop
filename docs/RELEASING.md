@@ -62,7 +62,10 @@ python scripts/build_macos.py
 ```
 
 macOS requires Xcode command-line tools. Its app copy preserves framework
-symlinks. Windows downloads a verified portable NSIS compiler automatically.
+symlinks. The build verifies the original BlackHole archive's checksum and Apple
+signature, then combines its unchanged component payloads/scripts with Voice Loop.
+The combined installer preserves the BlackHole license and restart requirement;
+the outer Voice Loop package is unsigned. Windows downloads a verified portable NSIS compiler automatically.
 Outputs are in `dist/`; downloaded dependencies, drivers, and build artifacts
 are excluded from Git. See [THIRD_PARTY.md](../THIRD_PARTY.md) for redistribution
 notices and source/license links.

@@ -10,6 +10,7 @@ import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 RESOURCES = Path(__file__).with_name("resources")
 BLACKHOLE = (
@@ -23,13 +24,13 @@ def download_verified(url: str, destination: Path, expected: str) -> None:
         raise ValueError("Driver downloads require HTTPS.")
     digest = hashlib.sha256()
     partial = destination.with_suffix(destination.suffix + ".partial")
-    request = urllib.request.Request(
-        url,
-        headers={
+    headers = {}
+    if urlsplit(url).hostname == "existential.audio":
+        headers = {
             "User-Agent": "Mozilla/5.0 (compatible; VoiceLoop; +https://github.com/alshell7/voice-loop)",
             "Accept": "*/*",
-        },
-    )
+        }
+    request = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=60) as response, partial.open("wb") as output:
             if not response.url.startswith("https://"):
