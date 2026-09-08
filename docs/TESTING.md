@@ -51,8 +51,15 @@ PySide6 Essentials 6.11.2, keyring 25.7.0. Updated for Voice Loop 0.3.2.
   deferred resizing now produces a compact panel. Keyboard playback seeking is
   tested separately from programmatic timer updates.
 - **Ruff:** source lint and formatting checks.
-- **PyInstaller:** Windows native bundle built locally. Linux/macOS build jobs
-  are configured, but have not run on this local Windows host.
+- **GitHub CI:** all six Windows/macOS/Linux × Python 3.11/3.13 combinations
+  passed on the initial public push, including Swift helper compilation and
+  synthetic audio integration. Native installer jobs run separately; consult
+  [GitHub Actions](https://github.com/alshell7/voice-loop/actions) for current results.
+- **PyInstaller:** Windows native bundle built locally. The first hosted macOS
+  Apple Silicon app build passed; its installer job exposed an HTTP 406 from
+  the driver download server. Downloads now identify Voice Loop in an explicit
+  compatible User-Agent and retain checksum/signature checks. Linux has source
+  testing but no automated installer release.
 - **Packaged native backend:** the standalone Windows executable successfully
   exported the real device list including VoiceLoop Mic and VoiceLoop Speaker.
 - **Packaged Qt startup:** `scripts/smoke_packaged.ps1` launched and rendered the

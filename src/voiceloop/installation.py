@@ -23,8 +23,15 @@ def download_verified(url: str, destination: Path, expected: str) -> None:
         raise ValueError("Driver downloads require HTTPS.")
     digest = hashlib.sha256()
     partial = destination.with_suffix(destination.suffix + ".partial")
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; VoiceLoop; +https://github.com/alshell7/voice-loop)",
+            "Accept": "*/*",
+        },
+    )
     try:
-        with urllib.request.urlopen(url, timeout=60) as response, partial.open("wb") as output:
+        with urllib.request.urlopen(request, timeout=60) as response, partial.open("wb") as output:
             if not response.url.startswith("https://"):
                 raise RuntimeError("Driver download redirected to an insecure URL.")
             total = 0
