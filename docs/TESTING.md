@@ -5,7 +5,7 @@ PySide6 Essentials 6.11.2, keyring 25.7.0. Updated for Voice Loop 0.4.0.
 
 ## Browser companion checks (0.4.0)
 
-- **175 Python tests** and **35 Node tests** pass locally. Ruff lint/format,
+- **175 Python tests** and **39 Node tests** pass locally. Ruff lint/format,
   workflow syntax checks, the Windows installer build, and the frozen native Qt
   smoke check also pass for 0.4.0.
 - Authenticated HTTP bridge tests cover local-only binding, pairing persistence,
@@ -15,10 +15,12 @@ PySide6 Essentials 6.11.2, keyring 25.7.0. Updated for Voice Loop 0.4.0.
   consent, automatic recording, ended/timeout handling, manual-session ownership,
   manual-stop suppression, delayed event queues, successive calls, device-switch
   races, and automatic recording during a nested manual-consent event loop.
-- **35 Node tests** include worker restart/offline delivery, safe URL metadata,
+- **39 Node tests** include worker restart/offline delivery, safe URL metadata,
   tab close, pairing, and actual `content.js` execution against sanitized HTML.
   Outgoing Cliq ringing and joined Meet fixtures derive from observed live DOM;
   incoming/answered fixtures are representative and are labeled accordingly.
+  Slow connection setup preserves invitation identity and incoming direction
+  while a visible zero timer still prevents recording.
 - `scripts/smoke_browser.py` passes real authenticated HTTP events through the
   Qt app and real spawned audio workers using generated 220/660 Hz tones. It
   verifies no ringing capture, accepted prompts, automatic recording, call-end

@@ -23,6 +23,62 @@ test("incoming call keeps its identity and caller until attended, then ends", ()
   assert.equal(t.observe({...connected, ended: true}, 3000).state, "ended");
   assert.equal(t.call, null);
 });
+test("slow incoming handshake retains identity and direction without establishing attendance", () => {
+  const t = tracker();
+  const call = {...incoming, nativeCallKey: "native-incoming"};
+  const ring = t.observe(call, 0);
+  const handshake = {...call, incoming: false, elapsed: 0};
+  for (const at of [1000, 4000, 9000, 20000]) {
+    assert.equal(t.observe(handshake, at), null);
+    assert.equal(t.call.state, "ringing");
+    assert.equal(t.call.direction, "incoming");
+    assert.equal(t.call.call_id, ring.call_id);
+  }
+  assert.equal(t.observe({...handshake, elapsed: 1}, 21000), null);
+  const attended = t.observe({...handshake, elapsed: 2}, 21800);
+  assert.equal(attended.state, "connected");
+  assert.equal(attended.call_id, ring.call_id);
+  assert.equal(attended.direction, "incoming");
+});
+test("a pending handshake still ends on explicit termination or actual wrapper absence", () => {
+  for (const explicit of [true, false]) {
+    const t = tracker();
+    const invitation = {...incoming, nativeCallKey: "native-incoming"};
+    t.observe(invitation, 0);
+    const handshake = {...invitation, incoming: false, elapsed: 0};
+    t.observe(handshake, 1000); t.observe(handshake, 5000);
+    const endedSnapshot = explicit ? {...handshake, ended: true} : {...handshake, callPanel: false, hangup: false, nativeCallKey: ""};
+    let ended = t.observe(endedSnapshot, 6000);
+    if (!explicit) {
+      assert.equal(ended, null);
+      ended = t.observe(endedSnapshot, 8600);
+    }
+    assert.equal(ended.state, "ended");
+    assert.equal(ended.direction, "incoming");
+    assert.equal(t.call, null);
+  }
+});
+test("replacement call during an incoming handshake gets a new identity and its own direction", () => {
+  let id = 0;
+  const t = new CallTracker({uuid: () => `call-${++id}`});
+  t.observe({...incoming, nativeCallKey: "native-incoming"}, 0);
+  t.observe({...incoming, nativeCallKey: "native-incoming", incoming: false, elapsed: 0}, 1000);
+  const replacement = {...outgoing, nativeCallKey: "native-outgoing"};
+  assert.equal(t.observe(replacement, 5000).state, "ended");
+  const next = t.observe(replacement, 6000);
+  assert.equal(next.state, "dialing");
+  assert.equal(next.call_id, "call-2");
+  assert.equal(next.direction, "outgoing");
+});
+test("zero timer alone cannot preserve an invitation without the same visible call and hangup", () => {
+  for (const patch of [{nativeCallKey: ""}, {hangup: false}, {callPanel: false}]) {
+    const t = tracker();
+    t.observe({...incoming, nativeCallKey: "native-incoming"}, 0);
+    const candidate = {...incoming, incoming: false, elapsed: 0, nativeCallKey: "native-incoming", ...patch};
+    assert.equal(t.observe(candidate, 1000), null);
+    assert.equal(t.observe(candidate, 3600).state, "ended");
+  }
+});
 test("outgoing call connects only after answer and preserves outgoing direction", () => {
   const t = tracker(); t.observe(outgoing, 1000);
   assert.equal(t.observe(outgoing, 9000), null);

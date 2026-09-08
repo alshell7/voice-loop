@@ -98,9 +98,13 @@ test("real content.js representative incoming HTML waits for attendance and pres
   b.document.querySelector("[initialcontainer]").style.display = "none";
   b.document.querySelector(".AV-call-main").style.display = "block";
   b.document.querySelector(".AV-call-main [other-username]").textContent = "Test Caller";
+  b.document.querySelector("#mediacallsessiontimer").textContent = "00:00";
+  await b.advance(); await b.advance(5000);
+  assert.deepEqual(b.events.map(event => event.state), ["ringing"]);
   b.document.querySelector("#mediacallsessiontimer").textContent = "00:01";
   await b.advance(); await b.advance();
   assert.equal(b.events.at(-1).state, "connected");
+  assert.equal(b.events.at(-1).call_id, b.events[0].call_id);
   assert.equal(b.events.at(-1).direction, "incoming");
   assert.equal(b.events.at(-1).contact.name, "Test Caller");
 });

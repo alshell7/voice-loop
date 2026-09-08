@@ -55,6 +55,14 @@
       } else if (state !== "connected") this.candidateSince = null;
       if (!state) {
         if (!this.call) return null;
+        // Accepting an invitation can hide its answer/ringing controls before
+        // the connection finishes. A still-visible, identical call wrapper with
+        // an end-call control and a zero timer is a pending handshake, not an
+        // absent call. Retain invitation metadata without granting attendance.
+        const pendingHandshake = (this.call.state === "ringing" || this.call.state === "dialing")
+          && snapshot.callPanel && snapshot.hangup && snapshot.elapsed === 0 && !snapshot.ended
+          && this.nativeCallKey && snapshot.nativeCallKey === this.nativeCallKey;
+        if (pendingHandshake) { this.absentSince = null; return null; }
         this.absentSince ??= now;
         if (!snapshot.ended && now - this.absentSince < this.endGraceMs) return null;
         const ended = {...this.call, state: "ended"};
