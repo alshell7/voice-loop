@@ -60,6 +60,22 @@ choice dialog. Startup registration is per user (Windows Run entry, macOS
 LaunchAgent, or Linux XDG autostart). Launching the app alone does not start audio;
 opt-in browser automation can start recording when a connected call is detected.
 
+### Screen privacy
+
+In **Preferences → Screen privacy**, enable **Hide Voice Loop from screen capture**.
+The setting is off by default, is remembered across launches, and takes effect
+immediately. It covers the main window, floating controls, app dialogs, and the
+floating contact/tool suggestions. Disable it to include Voice Loop in a capture.
+Audio routing and recording are unaffected.
+
+On Windows 10 version 2004 and newer, supported screenshot and screen-sharing
+tools omit protected windows. This uses the same native API as Electron's content
+protection. **It cannot guarantee blocking every capture method.** On macOS,
+the legacy exclusion setting does **not** block modern ScreenCaptureKit tools.
+Linux has no supported implementation; the option is unavailable there. System
+dialogs and files opened in another application are outside Voice Loop's control.
+See [capture protection and verification](docs/CAPTURE_PROTECTION.md).
+
 ### Connected-call recording in Chrome
 
 The companion extension is in [`extension/chrome`](extension/chrome). It detects

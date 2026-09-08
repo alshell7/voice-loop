@@ -24,3 +24,8 @@ locally, not in Chrome sync. Call metadata travels only to the local desktop app
 Review changes to origin/host checks, event validation, and the connected-call
 recording gate as security-sensitive. A compromised supported meeting page can
 alter its own call UI; DOM detection is not a security attestation of attendance.
+
+Optional window capture exclusion is a presentation privacy aid, not a security
+boundary. Windows restricts supported OS capture paths; macOS ScreenCaptureKit
+can ignore the legacy flag, and Linux is unsupported. It does not protect saved
+files or accessibility text. See [capture protection](docs/CAPTURE_PROTECTION.md).

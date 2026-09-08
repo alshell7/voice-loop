@@ -13,6 +13,8 @@ from GitHub Actions → Release Windows and macOS → Run workflow.
    Windows, macOS, and Linux with Python 3.11 and 3.13.
 2. Native runners build Windows x64, macOS arm64 (Apple Silicon), and macOS x64
    (Intel) installers using Python 3.13. Each also runs tests and frozen-app UI checks.
+   Native capture-setting checks run on each frozen app before publication;
+   macOS verifies its legacy flag, not ScreenCaptureKit exclusion.
 3. Only when every job passes, the publish job verifies all three installers and
    their SHA-256 files, builds the Chrome companion ZIP, creates a draft, uploads the complete asset set, and
    publishes it as a prerelease.

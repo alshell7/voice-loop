@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 from voiceloop import __version__
 from voiceloop.activity import QUIET_SECONDS
 from voiceloop.call_detection import HEARTBEAT_TIMEOUT, CallController
+from voiceloop.capture_protection import CaptureProtection
 from voiceloop.config import Settings
 from voiceloop.devices import (
     Device,
@@ -306,6 +307,7 @@ class App(QMainWindow):
         self.setWindowIcon(icon("session", "#006FEE", 32))
         self.resize(1060, 820)
         self.setMinimumSize(820, 640)
+        self.capture_protection = CaptureProtection(self, self.settings.capture_protection)
         self._build()
         self.refresh_devices()
         self.refresh_library()
@@ -1240,11 +1242,19 @@ class App(QMainWindow):
         self.raise_()
         self.activateWindow()
 
+    def set_capture_protection(self, enabled):
+        self.settings.capture_protection = bool(enabled)
+        self.capture_protection.set_enabled(enabled)
+        self.save_preferences()
+
     def show_floating(self):
         if self.floating is None:
             from voiceloop.ui_extras import FloatingControls
 
             self.floating = FloatingControls(self)
+            self.capture_protection.register(self.floating)
+            for combo in (self.floating.tool, self.floating.contact):
+                self.capture_protection.register(combo.completer().popup())
             geometry = self.screen().availableGeometry()
             self.floating.move(
                 geometry.right() - self.floating.width() - 24,
@@ -1517,6 +1527,7 @@ class App(QMainWindow):
         self.cancel_transcription()
         for viewer in list(self.dialogs):
             viewer.close()
+        self.capture_protection.close()
         event.accept()
         if self.desktop_enabled:
             QApplication.instance().quit()

@@ -110,6 +110,7 @@ def enable_desktop(window, *, register_startup=True):
     tray.setContextMenu(menu)
     # Keep a Python reference: QSystemTrayIcon does not own its menu.
     window.tray_menu = menu
+    window.capture_protection.register(menu)
 
     def rebuild():
         menu.clear()

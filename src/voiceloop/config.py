@@ -39,6 +39,7 @@ class Settings:
     recording_directory: str = ""
     launch_at_login: bool = True
     floating_opacity: int = 95
+    capture_protection: bool = False
     session_mode: str = "route"
     meeting_tool: str = ""
     contact_name: str = ""

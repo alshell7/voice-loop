@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Voice Loop — call companion",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Connect attended Zoho Cliq calls and joined Google Meet meetings to your local Voice Loop app.",
   "minimum_chrome_version": "120",
   "permissions": ["storage", "alarms"],

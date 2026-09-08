@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1
+
+- Add an opt-in Screen privacy setting to exclude the main window, floating
+  controls, and app dialogs from supported Windows capture tools.
+- Apply the setting immediately and after native window recreation; report
+  failures instead of claiming protection. Turning it off restores capture.
+- Add Electron-equivalent legacy macOS exclusion with an explicit ScreenCaptureKit
+  limitation. Linux shows the setting as unavailable.
+- Verify native on/off state and actual Windows desktop capture before release.
+
 ## 0.4.0
 
 - Add a Chrome companion for attended Zoho Cliq incoming/outgoing calls and

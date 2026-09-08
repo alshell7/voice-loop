@@ -17,6 +17,13 @@ def main() -> int:
     )
     ui_check = commands.add_parser("check-ui", help="Check packaged Qt rendering without audio")
     ui_check.add_argument("--output", required=True, help="Write diagnostic JSON to this file")
+    capture_check = commands.add_parser(
+        "check-capture", help="Verify native window capture protection without audio"
+    )
+    capture_check.add_argument("--output", required=True)
+    capture_check.add_argument(
+        "--pixels", action="store_true", help="Also verify Windows desktop screenshots"
+    )
     commands.add_parser(
         "setup-linux", help="Create Voice Loop virtual endpoints for this audio session"
     )
@@ -43,6 +50,10 @@ def main() -> int:
             from voiceloop.diagnostics import check_ui
 
             check_ui(args.output)
+        elif args.command == "check-capture":
+            from voiceloop.capture_diagnostics import check_capture
+
+            check_capture(args.output, pixels=args.pixels)
         elif args.command == "setup-linux":
             from voiceloop.virtual import ensure_linux_devices
 

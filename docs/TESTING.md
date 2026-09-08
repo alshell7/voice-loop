@@ -1,7 +1,30 @@
 # Verification record
 
 Local host: Windows 11 x64, Python 3.13.14, SoundCard 0.4.6, NumPy 2.5.3,
-PySide6 Essentials 6.11.2, keyring 25.7.0. Updated for Voice Loop 0.4.0.
+PySide6 Essentials 6.11.2, keyring 25.7.0. Updated for Voice Loop 0.4.1.
+
+## Capture protection checks (0.4.1)
+
+- **183 Python tests** pass (the full 182-test suite plus the added pre-show
+  regression); the eight capture tests cover toggling, persisted settings,
+  window ownership, new windows, recreated handles, unavailable platforms, and
+  native failure/recovery. Ruff and workflow syntax checks pass.
+- Source and frozen Windows apps passed `check-capture --pixels`. Native affinity
+  reads confirmed exclusion on the main window, floating controls, app dialog,
+  contact suggestions, and mode dropdown. Hide/show and compact resizing kept
+  protection. Disabling restored normal affinity.
+- Actual desktop screenshot pixels showed the synthetic background for **100%**
+  of each sampled region with protection on, versus **0%** with protection off
+  and after disabling it. Both the main and translucent floating window passed.
+- A separate native Windows Graphics Capture check showed both synthetic app
+  windows before enabling protection and the windows behind them after enabling
+  it. The protected Voice Loop content was absent.
+- Checks used temporary synthetic UI, no audio, no network and no personal
+  settings changes. They do not establish that every screenshot/recording tool
+  honors exclusion. macOS modern ScreenCaptureKit capture is explicitly not
+  blocked; frozen native legacy-flag checks run in release CI. Linux is unsupported.
+
+Reproduce with the commands in [CAPTURE_PROTECTION.md](CAPTURE_PROTECTION.md).
 
 ## Browser companion checks (0.4.0)
 
