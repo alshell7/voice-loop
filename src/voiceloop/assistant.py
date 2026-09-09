@@ -2,6 +2,7 @@
 
 import copy
 import json
+import re
 import threading
 import time
 import uuid
@@ -72,6 +73,20 @@ class AssistantService:
             self.config = copy.deepcopy(config)
             if self.active_id and not config.enabled:
                 self.cancel(self.active_id)
+            if not config.enabled or not config.busy_fallback_enabled:
+                for job in self.store.list():
+                    if (
+                        job.get("delivery_kind") == "busy_fallback"
+                        and job.get("delivery_status") == "sending"
+                    ):
+                        try:
+                            outcome = self._bridge().cancel_command(job["summary_command_id"])
+                            job["delivery_status"] = (
+                                "disabled" if outcome == "cancelled" else "ambiguous"
+                            )
+                        except (ValueError, RuntimeError, OSError):
+                            job["delivery_status"] = "ambiguous"
+                        self.store.put(job)
 
     def _bridge(self):
         bridge = self.bridge_provider()
@@ -116,6 +131,8 @@ class AssistantService:
         existing = self.config.target(value)
         if existing:
             return existing, None
+        if not re.fullmatch(r"[0-9]{1,40}", value) and "://" not in value:
+            return self.config.resolve_recipient(value), None
         config = copy.deepcopy(self.config)
         target = config.make_cliq_target(contact_name.strip() or "Cliq contact", value)
         existing = config.target(target.id)
@@ -586,6 +603,9 @@ class AssistantService:
                             else:
                                 job["command_id"] = str(uuid.uuid4())
                                 job["state"] = "waiting"
+                                job["busy_fallback_requested"] = (
+                                    job["action"] == "call" and self.config.busy_fallback_enabled
+                                )
                                 self.store.put(job)  # Journal intention before browser side effect.
                                 self._bridge().submit_command(
                                     job["action"],
@@ -596,6 +616,7 @@ class AssistantService:
                                     participant_id=job.get("participant_id", ""),
                                     command_id=job["command_id"],
                                     ttl=30,
+                                    busy_fallback=job["busy_fallback_requested"],
                                 )
                                 self.deadline = time.monotonic() + 60
                         except (ValueError, RuntimeError, OSError) as exc:
@@ -660,7 +681,7 @@ class AssistantService:
         self.store.put(job)
         self._export(job)
         self.worker, self.active_id = None, ""
-        if summarize and job["transcript"]:
+        if summarize and job["transcript"] and job.get("delivery_kind") != "busy_fallback":
             self._start_summary(job)
 
     def _export(self, job):
@@ -750,6 +771,45 @@ class AssistantService:
             self.store.put(job)
             self._export(job)
 
+    def _send_busy_fallback(self, job):
+        """Send once, only after an owned call command confirms a busy recipient."""
+        job.update(
+            state="failed",
+            browser_ended=True,
+            ended_at=self.now().isoformat(),
+            delivery_kind="busy_fallback",
+            fallback_text=job["objective"],
+            fallback_reason="Cliq confirmed the recipient is busy or on another call.",
+            delivery_status="disabled",
+        )
+        try:
+            target = self._target(job["target_id"])
+            self._permit(target)
+            if (
+                not self.config.busy_fallback_enabled
+                or target.url != job["chat_url"]
+                or self._profile() != job["profile_id"]
+            ):
+                self.store.put(job)
+                return
+            job["summary_command_id"] = str(uuid.uuid4())
+            job["delivery_status"] = "sending"
+            self.store.put(job)  # Persist before the external message action.
+            self._bridge().submit_command(
+                "send_summary",
+                profile_id=job["profile_id"],
+                chat_id=job["chat_id"],
+                chat_url=job["chat_url"],
+                text=job["fallback_text"],
+                command_id=job["summary_command_id"],
+                ttl=60,
+            )
+        except (ValueError, RuntimeError, OSError):
+            if job["delivery_status"] == "sending":
+                job["delivery_status"] = "ambiguous"
+            job["fallback_reason"] = "Busy fallback could not be confirmed; it was not retried."
+        self.store.put(job)
+
     def _command_result(self, result):
         for job in self.store.list():
             if result["command_id"] == job.get("hangup_command_id"):
@@ -769,6 +829,21 @@ class AssistantService:
                 return
             if result["command_id"] == job.get("command_id"):
                 job["command_result_status"] = result["status"]
+                if (
+                    result.get("code") == "recipient_busy"
+                    and result["status"] == "failed"
+                    and job["state"] == "waiting"
+                    and job["action"] == "call"
+                    and job.get("busy_fallback_requested")
+                    and not job.get("call_id")
+                    and not result.get("call_id")
+                    and not job.get("connected")
+                    and job["id"] == self.active_id
+                ):
+                    job["error"] = "The recipient is busy; the call was not connected."
+                    self.worker.stop()
+                    self._send_busy_fallback(job)
+                    return
                 if result.get("call_id"):
                     if job.get("call_id") and job["call_id"] != result["call_id"]:
                         # A late result cannot replace a previously observed

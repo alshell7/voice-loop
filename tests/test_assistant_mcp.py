@@ -1,4 +1,5 @@
 import asyncio
+import io
 import json
 import sys
 import threading
@@ -39,7 +40,7 @@ def test_real_mcp_handshake_lists_schemas_and_routes_calls():
             assert tools["voice_loop_job"].annotations.readOnlyHint is True
             assert tools["voice_loop_call"].annotations.idempotentHint is False
             assert tools["voice_loop_call"].annotations.openWorldHint is True
-            assert set(tools["voice_loop_call"].inputSchema["required"]) == {"chat_id", "objective"}
+            assert set(tools["voice_loop_call"].inputSchema["required"]) == {"objective"}
             await session.call_tool("voice_loop_status", {})
             await session.call_tool("voice_loop_job", {"job_id": "job-1"})
             result = await session.call_tool(
@@ -110,6 +111,77 @@ def test_mcp_new_chat_name_is_optional_and_forwarded_without_changing_company_po
                 assert calls[-1] == (name.removeprefix("voice_loop_"), arguments)
 
     asyncio.run(exercise())
+
+
+def test_mcp_saved_name_call_and_relative_schedule_need_no_chat_id():
+    calls = []
+
+    def client(operation, payload=None):
+        calls.append((operation, payload))
+        return {"state": "queued"}
+
+    async def exercise():
+        server = assistant_mcp.create_server(client)
+        assert "Do not ask for a chat ID" in server.instructions
+        async with create_connected_server_and_client_session(server) as session:
+            named = {"recipient": "Alex", "objective": "Ask about the report"}
+            assert not (await session.call_tool("voice_loop_call", named)).isError
+            scheduled = {**named, "delay_minutes": 180}
+            assert not (await session.call_tool("voice_loop_schedule", scheduled)).isError
+            assert calls == [("call", named), ("schedule", scheduled)]
+
+    asyncio.run(exercise())
+
+
+def test_mcp_conflicting_recipients_and_schedule_times_never_reach_desktop():
+    calls = []
+
+    async def exercise():
+        async with create_connected_server_and_client_session(
+            assistant_mcp.create_server(lambda *args: calls.append(args))
+        ) as session:
+            assert (await session.call_tool("voice_loop_call", {"objective": "Test"})).isError
+            assert (
+                await session.call_tool(
+                    "voice_loop_call", {"objective": "Test", "chat_id": "42", "recipient": "Alex"}
+                )
+            ).isError
+            for timing in (
+                {"delay_minutes": True},
+                {"delay_minutes": 1.5},
+                {"delay_minutes": 180, "when": "2026-10-01T09:00:00Z"},
+            ):
+                assert (
+                    await session.call_tool(
+                        "voice_loop_schedule", {"recipient": "Alex", "objective": "Test", **timing}
+                    )
+                ).isError
+
+    asyncio.run(exercise())
+    assert not calls
+
+
+@pytest.mark.parametrize("code", ["recipient_ambiguous", "recipient_not_found", "unknown_code"])
+def test_mcp_http_errors_preserve_only_allowlisted_recipient_guidance(monkeypatch, tmp_path, code):
+    (tmp_path / "assistant-control-token").write_text("local-control-secret", encoding="utf-8")
+    monkeypatch.setattr(assistant_mcp, "data_directory", lambda: tmp_path)
+
+    class Opener:
+        def open(self, *_args, **_kwargs):
+            raise assistant_mcp.urllib.error.HTTPError(
+                "http://127.0.0.1/control",
+                400,
+                "private-exception",
+                {},
+                io.BytesIO(json.dumps({"error_code": code, "error": "private-token"}).encode()),
+            )
+
+    monkeypatch.setattr(assistant_mcp.urllib.request, "build_opener", lambda *_: Opener())
+    with pytest.raises(RuntimeError) as error:
+        assistant_mcp.request("call", {"recipient": "Alex", "objective": "Test"})
+    assert "private-" not in str(error.value)
+    assert ("voice_loop_status" in str(error.value)) is (code != "unknown_code")
+    assert error.value.__suppress_context__
 
 
 def test_real_stdio_entry_point_handshakes_without_loading_api_key_or_calling():

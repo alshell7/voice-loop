@@ -3,11 +3,14 @@ import json
 import os
 import socket
 import time
-from datetime import datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from test_assistant import service as service
 
+from voiceloop.assistant_config import ChatTarget, RecipientResolutionError
 from voiceloop.assistant_control import ControlServer
 from voiceloop.browser_bridge import pairing_token
 
@@ -17,6 +20,7 @@ class Service:
         self.calls = []
         self.failure = None
         self.jobs = []
+        self.clock = datetime(2026, 9, 9, 10, tzinfo=UTC)
         self.store = SimpleNamespace(
             get=lambda job_id: next(j for j in self.jobs if j["id"] == job_id)
         )
@@ -24,6 +28,8 @@ class Service:
             cliq_company_id="123456",
             cliq_origin="https://cliq.zoho.com",
             language="English",
+            timezone="Asia/Kolkata",
+            resolve_recipient=self.resolve_recipient,
             targets=[
                 SimpleNamespace(
                     id="42", name="Test Contact", url="https://example.test", enabled=True
@@ -33,6 +39,15 @@ class Service:
 
     def snapshot(self):
         return {"status": "idle", "jobs": self.jobs}
+
+    def now(self):
+        return self.clock
+
+    def resolve_recipient(self, name):
+        matches = {"alex": "42", "zoë ahmed": "43"}
+        if name.casefold() not in matches:
+            raise RecipientResolutionError("recipient_not_found")
+        return SimpleNamespace(id=matches[name.casefold()])
 
     def trigger(self, chat_id, objective, *, contact_name=""):
         if self.failure:
@@ -89,6 +104,11 @@ def test_control_loopback_status_and_operations(control):
     assert json.loads(body)["targets"][0]["id"] == "42"
     assert json.loads(body)["cliq"] == {"company_id": "123456", "origin": "https://cliq.zoho.com"}
     assert json.loads(body)["language"] == "English"
+    assert json.loads(body)["busy_fallback_enabled"] is False
+    control.service.config.busy_fallback_enabled = True
+    assert json.loads(request(control)[2])["busy_fallback_enabled"] is True
+    assert json.loads(body)["current_time"] == control.service.clock.isoformat()
+    assert json.loads(body)["timezone"] == "Asia/Kolkata"
     assert headers["Cache-Control"] == "no-store"
     assert not any(name.lower().startswith("access-control") for name in headers)
     assert request(control, "/v1/call", {"chat_id": "42", "objective": "Audio test"})[0] == 200
@@ -122,6 +142,138 @@ def test_new_chat_contact_name_is_forwarded_to_desktop_policy(control, operation
     assert action[:3] == (operation, data["chat_id"], data["objective"])
     assert action[-1] == "Zoë Ahmed"
     assert len(control.service.config.targets) == 1
+
+
+def test_saved_recipient_and_relative_delay_use_the_desktop_clock(control):
+    data = {"recipient": "  Alex  ", "objective": "Ask about the report", "delay_minutes": 180}
+    assert request(control, "/v1/schedule", data)[0] == 200
+    assert control.service.calls == [
+        ("schedule", "42", data["objective"], control.service.clock + timedelta(hours=3))
+    ]
+    assert (
+        request(control, "/v1/call", {"recipient": "Zoë Ahmed", "objective": "A reminder"})[0]
+        == 200
+    )
+    assert control.service.calls[-1] == ("call", "43", "A reminder")
+
+
+@pytest.mark.parametrize(
+    "recipient", ["987654321", "https://cliq.zoho.com/company/123/chats/987654321"]
+)
+def test_saved_name_selector_cannot_create_unknown_id_or_url_contacts(control, recipient):
+    status, _, body = request(
+        control, "/v1/call", {"recipient": recipient, "objective": "A reminder"}
+    )
+    assert status == 400 and json.loads(body)["error_code"] == "recipient_not_found"
+    assert not control.service.calls
+
+
+def test_saved_name_and_delay_integrate_with_real_service_policy(service, tmp_path):
+    server = ControlServer(service, port=0, token_path=tmp_path / "integration-token")
+    server.start()
+    try:
+        status, _, body = request(
+            server,
+            "/v1/schedule",
+            {
+                "recipient": "aLeX",
+                "objective": "Remind them about the report",
+                "delay_minutes": 180,
+            },
+        )
+        assert status == 200
+        job = service.store.get(json.loads(body)["id"])
+        assert job["target_id"] == "456" and job["target_name"] == "Alex"
+        assert datetime.fromisoformat(job["scheduled_at"]) == service.now() + timedelta(hours=3)
+        service.save_config(
+            replace(
+                service.config,
+                targets=[
+                    *service.config.targets,
+                    ChatTarget.from_url(
+                        "Alex Smith", "https://cliq.zoho.com/company/123/chats/789"
+                    ),
+                ],
+            )
+        )
+        code, _, body = request(server, "/v1/call", {"recipient": "Al", "objective": "A reminder"})
+        assert code == 400 and json.loads(body)["error_code"] == "recipient_ambiguous"
+        assert len(service.store.list()) == 1
+        assert not service.test_workers and not service.test_bridge.commands
+    finally:
+        server.stop()
+
+
+def test_relative_delay_means_elapsed_time_across_daylight_saving_transition(control):
+    from zoneinfo import ZoneInfo
+
+    control.service.clock = datetime(2026, 11, 1, 0, 30, tzinfo=ZoneInfo("America/New_York"))
+    assert (
+        request(
+            control,
+            "/v1/schedule",
+            {"recipient": "Alex", "objective": "A reminder", "delay_minutes": 180},
+        )[0]
+        == 200
+    )
+    result = control.service.calls[0][3]
+    assert result == datetime(2026, 11, 1, 7, 30, tzinfo=UTC)
+    assert result.astimezone(ZoneInfo("America/New_York")).hour == 2
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        {},
+        {"recipient": "Alex", "chat_id": "42"},
+        {"recipient": " "},
+        {"recipient": 42},
+        {"recipient": "x" * 121},
+        {"recipient": "Alex\nOther"},
+        {"recipient": "Alex\x7f"},
+        {"recipient": "Alex", "contact_name": "Other"},
+    ],
+)
+def test_invalid_or_conflicting_recipient_selector_has_no_side_effect(control, selector):
+    assert request(control, "/v1/call", {"objective": "A reminder", **selector})[0] == 400
+    assert not control.service.calls
+
+
+@pytest.mark.parametrize(
+    "timing",
+    [
+        {},
+        {"delay_minutes": 0},
+        {"delay_minutes": -1},
+        {"delay_minutes": True},
+        {"delay_minutes": 1.5},
+        {"delay_minutes": "180"},
+        {"delay_minutes": 527041},
+        {"delay_minutes": 180, "when": "2026-10-01T09:00:00Z"},
+        {"when": "2026-10-01T09:00:00"},
+        {"when": None},
+    ],
+)
+def test_invalid_relative_or_absolute_schedule_has_no_side_effect(control, timing):
+    assert (
+        request(
+            control, "/v1/schedule", {"recipient": "Alex", "objective": "A reminder", **timing}
+        )[0]
+        == 400
+    )
+    assert not control.service.calls
+
+
+@pytest.mark.parametrize("code", ["recipient_ambiguous", "recipient_not_found"])
+def test_recipient_resolution_errors_are_actionable_without_private_exception_text(control, code):
+    error = ValueError("private-token private-contact")
+    error.code = code
+    control.service.failure = error
+    status, _, body = request(control, "/v1/call", {"recipient": "Alex", "objective": "A reminder"})
+    assert status == 400
+    result = json.loads(body)
+    assert result["error_code"] == code and "voice_loop_status" in result["error"]
+    assert b"private-" not in body
 
 
 @pytest.mark.parametrize(

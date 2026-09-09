@@ -6,13 +6,23 @@ import os
 import re
 import socket
 import threading
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler
 
 from voiceloop.browser_bridge import _Server, pairing_token
 from voiceloop.config import data_directory
 
 CONTROL_PORT = 49322
+POLICY_ERRORS = {
+    "recipient_ambiguous": (
+        "More than one saved contact matches. Use the full saved name or inspect "
+        "voice_loop_status to choose the intended contact."
+    ),
+    "recipient_not_found": (
+        "No saved contact matches that name. Inspect voice_loop_status for saved contacts, "
+        "or add the contact in Voice Loop first."
+    ),
+}
 
 
 class _ControlHTTPServer(_Server):
@@ -30,21 +40,66 @@ class _ControlHTTPServer(_Server):
 
 
 def call_arguments(data, *, scheduled=False):
-    required = {"chat_id", "objective", "when"} if scheduled else {"chat_id", "objective"}
-    if not required.issubset(data) or set(data) - required - {"contact_name"}:
-        raise ValueError("Expected a chat ID, objective and optional contact name.")
-    chat_id, objective = data["chat_id"], data["objective"]
-    if not isinstance(chat_id, str) or not re.fullmatch(r"[0-9]{1,40}", chat_id):
-        raise ValueError("Expected a numeric Cliq chat ID.")
+    allowed = {"chat_id", "recipient", "objective", "contact_name"}
+    if scheduled:
+        allowed |= {"when", "delay_minutes"}
+    if "objective" not in data or set(data) - allowed:
+        raise ValueError("Expected a recipient, objective and optional scheduling fields.")
+    if ("chat_id" in data) == ("recipient" in data):
+        raise ValueError("Provide exactly one of recipient or chat_id.")
+    objective = data["objective"]
+    if "chat_id" in data:
+        target = data["chat_id"]
+        if not isinstance(target, str) or not re.fullmatch(r"[0-9]{1,40}", target):
+            raise ValueError("Expected a numeric Cliq chat ID.")
+    else:
+        target = data["recipient"]
+        if (
+            not isinstance(target, str)
+            or not 1 <= len(target.strip()) <= 120
+            or any(ord(c) < 32 or ord(c) == 127 for c in target)
+            or "contact_name" in data
+        ):
+            raise ValueError(
+                "Provide one saved contact name of 1–120 characters without a contact_name label."
+            )
+        target = target.strip()
     if not isinstance(objective, str) or not 1 <= len(objective.strip()) <= 4000:
         raise ValueError("Expected an objective of 1–4,000 characters.")
     options = {}
     if "contact_name" in data:
         name = data["contact_name"]
-        if not isinstance(name, str) or len(name.strip()) > 120 or any(ord(c) < 32 for c in name):
+        if (
+            not isinstance(name, str)
+            or len(name.strip()) > 120
+            or any(ord(c) < 32 or ord(c) == 127 for c in name)
+        ):
             raise ValueError("Expected a contact name of at most 120 characters.")
         options["contact_name"] = name.strip()
-    return chat_id, objective, options
+    if scheduled:
+        if ("when" in data) == ("delay_minutes" in data):
+            raise ValueError("Provide exactly one of when or delay_minutes.")
+        if "delay_minutes" in data:
+            delay = data["delay_minutes"]
+            if type(delay) is not int or not 1 <= delay <= 527040:
+                raise ValueError("delay_minutes must be a whole number from 1 to 527040.")
+        else:
+            when = data["when"]
+            if not isinstance(when, str):
+                raise ValueError("when must be ISO 8601 text with a timezone.")
+            parsed = datetime.fromisoformat(when)
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                raise ValueError("when must include a timezone.")
+    return target, objective, options
+
+
+def scheduled_time(data, service):
+    if "when" in data:
+        return datetime.fromisoformat(data["when"])
+    now = service.now()
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("The desktop clock must include a timezone.")
+    return now.astimezone(UTC) + timedelta(minutes=data["delay_minutes"])
 
 
 def compact_job(job):
@@ -185,17 +240,26 @@ class ControlServer:
                                 "origin": owner.service.config.cliq_origin,
                             }
                             result["language"] = owner.service.config.language
+                            result["busy_fallback_enabled"] = getattr(
+                                owner.service.config, "busy_fallback_enabled", False
+                            )
+                            result["current_time"] = owner.service.now().isoformat()
+                            result["timezone"] = owner.service.config.timezone
                         elif self.path == "/v1/job":
                             result = job_page(owner.service, data)
                         elif self.path == "/v1/call":
                             chat_id, objective, options = call_arguments(data)
+                            if "recipient" in data:
+                                chat_id = owner.service.config.resolve_recipient(chat_id).id
                             result = owner.service.trigger(chat_id, objective, **options)
                         elif self.path == "/v1/schedule":
                             chat_id, objective, options = call_arguments(data, scheduled=True)
+                            if "recipient" in data:
+                                chat_id = owner.service.config.resolve_recipient(chat_id).id
                             result = owner.service.schedule(
                                 chat_id,
                                 objective,
-                                datetime.fromisoformat(data["when"]),
+                                scheduled_time(data, owner.service),
                                 **options,
                             )
                         elif self.path == "/v1/cancel":
@@ -207,7 +271,13 @@ class ControlServer:
                             self._reply(404, {"error": "Unknown control operation."})
                             return
                     self._reply(200, result)
-                except (ValueError, TypeError, KeyError):
+                except (ValueError, TypeError, KeyError) as exc:
+                    error_code = getattr(exc, "code", "")
+                    if isinstance(error_code, str) and error_code in POLICY_ERRORS:
+                        self._reply(
+                            400, {"error_code": error_code, "error": POLICY_ERRORS[error_code]}
+                        )
+                        return
                     self._reply(
                         400,
                         {

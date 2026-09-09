@@ -166,6 +166,37 @@ test("restart with unfinished claim reports ambiguous without browser side effec
   const result = JSON.parse(h.requests.find(request => request.url.endsWith("/commands/result")).body);
   assert.equal(result.status, "ambiguous"); assert.equal(result.command_id, "unfinished-1");
 });
+
+test("validated busy fallback result survives the journal without repeating the browser action", async () => {
+  const h = await harness(), profile = (await h.popup({type: "status"})).profileId;
+  const cmd = command(profile, {busy_fallback: true}); h.transport.commands.push(cmd);
+  let acted = 0;
+  h.chrome.tabs.query = async () => [{id: 7, url: cmd.chat_url}];
+  h.chrome.tabs.sendMessage = async (_id, message) => {
+    if (message.type === "assistant-snapshot") return {ready: true, active: false};
+    acted++; assert.equal(message.command.busy_fallback, true);
+    return {status: "failed", call_id: "", detail: "The recipient is busy; the outgoing call was cancelled.", code: "recipient_busy"};
+  };
+  await h.message({type: "assistant-pulse"});
+  const result = JSON.parse(h.requests.findLast(request => request.url.endsWith("/commands/result")).body);
+  assert.equal(result.code, "recipient_busy"); assert.equal(result.status, "failed");
+  assert.equal(h.storage.session.inspect().bindings[7], undefined);
+  h.transport.commands.push(cmd); await h.message({type: "assistant-pulse"});
+  assert.equal(acted, 1); assert.equal(h.storage.local.inspect().commandJournal[cmd.command_id].result.code, "recipient_busy");
+});
+
+for (const patch of [{busy_fallback: false}, {status: "succeeded"}, {status: "ambiguous"}, {call_id: "active-call"}, {code: "unknown"}, {code: null}]) {
+  test(`invalid busy result never crosses the worker boundary: ${JSON.stringify(patch)}`, async () => {
+    const h = await harness(), profile = (await h.popup({type: "status"})).profileId;
+    const cmd = command(profile, {busy_fallback: patch.busy_fallback ?? true}); h.transport.commands.push(cmd);
+    h.chrome.tabs.query = async () => [{id: 7, url: cmd.chat_url}];
+    h.chrome.tabs.sendMessage = async (_id, message) => message.type === "assistant-snapshot" ? {ready: true, active: false}
+      : {status: "failed", call_id: "", detail: "Busy", code: "recipient_busy", ...patch};
+    await h.message({type: "assistant-pulse"});
+    const result = JSON.parse(h.requests.findLast(request => request.url.endsWith("/commands/result")).body);
+    assert.equal(result.status, "ambiguous"); assert.equal(result.code, undefined);
+  });
+}
 test("expired and other-profile commands never reach a tab", async () => {
   const h = await harness(); const profile = (await h.popup({type: "status"})).profileId;
   h.chrome.tabs.query = async () => { throw new Error("Must not inspect or dial tabs"); };

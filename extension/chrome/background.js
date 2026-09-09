@@ -168,6 +168,8 @@ async function runCommand(command) {
   try {
     const result = await chrome.tabs.sendMessage(tab.id, {type: "assistant-command", command});
     if (!result || !["succeeded", "failed", "ambiguous"].includes(result.status)) return {status: "ambiguous", detail: "The browser did not confirm the command outcome."};
+    const code = result.code === undefined ? "" : result.code;
+    if (code !== "" && (code !== "recipient_busy" || command.action !== "call" || !command.busy_fallback || result.status !== "failed" || result.call_id || command.call_id)) return {status: "ambiguous", detail: "The browser returned an invalid command outcome code."};
     if (command.action === "call" && /^[A-Za-z0-9_-]{1,100}$/.test(result.call_id || "")) {
       const {bindings} = await state();
       if (bindings[tab.id]?.command_id === command.command_id) {
@@ -175,7 +177,7 @@ async function runCommand(command) {
         await chrome.storage.session.set({bindings});
       }
     }
-    return {status: result.status, detail: String(result.detail || "").slice(0, 512), call_id: result.call_id || ""};
+    return {status: result.status, detail: String(result.detail || "").slice(0, 512), call_id: result.call_id || "", ...(code ? {code} : {})};
   } catch { return {status: "ambiguous", detail: "The page disconnected during the command. It will not be repeated."}; }
 }
 async function pollCommands(force = false) {
@@ -195,7 +197,7 @@ async function pollCommands(force = false) {
     }
     for (const [id, entry] of Object.entries(commandJournal)) if (entry.acknowledged && Date.now() - entry.created > 86400000) delete commandJournal[id];
     await chrome.storage.local.set({commandJournal});
-    const response = await request("/v1/commands/poll", pairingToken, {version: 1, profile_id: profileId, label: profileLabel, capabilities: ["call-control-v1", "zoho_cliq", "google_meet"]});
+    const response = await request("/v1/commands/poll", pairingToken, {version: 1, profile_id: profileId, label: profileLabel, capabilities: ["call-control-v1", "busy-fallback-v1", "zoho_cliq", "google_meet"]});
     for (const raw of (Array.isArray(response.commands) ? response.commands.slice(0, 1) : [])) {
       const command = normalizeCommand(raw, profileId);
       if (!command) continue;

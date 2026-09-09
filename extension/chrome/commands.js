@@ -38,12 +38,20 @@
     return one(all(document, "[mediacallwrapper]")) || one(all(document, "#mediacall_container"));
   }
   const presencePrompts = () => all(document, "#callConfirmation");
-  function audioPresenceStart() {
+  function audioPresencePrompt() {
     const prompt = one(presencePrompts());
     if (!prompt?.matches("[type='popup'].call-confirmation-dialog")) return null;
     const title = one(all(prompt, ".mheader_ttl"));
     if (!title || !/^start audio call\??$/i.test(D.clean(title.textContent))) return null;
-    return one(all(prompt, "button").filter(button => !button.disabled && /^start$/i.test(label(button))));
+    const buttons = all(prompt, "button").filter(button => !button.disabled);
+    // Body wrappers may change. Read only this owned prompt, excluding its
+    // verified heading and buttons, and require the complete status sentence.
+    const body = prompt.cloneNode(true);
+    for (const element of body.querySelectorAll(".mheader_ttl, button")) element.remove();
+    const sentence = renderedText(body).replace(/\s+/gu, " ").trim().replace(/’/g, "'");
+    const busy = /^the user's status is (?:busy|(?:on|in) (?:another|a) call)\. do you still want to proceed with the call\?$/i.test(sentence);
+    return {prompt, busy, start: one(buttons.filter(button => /^start$/i.test(label(button)))),
+      cancel: one(buttons.filter(button => /^cancel$/i.test(label(button))))};
   }
   function exactCall(command, getCall) {
     const call = getCall();
@@ -104,6 +112,7 @@
     };
     try {
       if (!command || !["call", "answer", "hangup", "send_summary"].includes(command.action) || !Number.isFinite(Date.parse(command.expires_at))) return outcome("failed", "Unsupported command.");
+      if (command.busy_fallback !== undefined && (typeof command.busy_fallback !== "boolean" || command.busy_fallback && (command.action !== "call" || command.call_id))) return outcome("failed", "Unsupported busy fallback option.");
       checkExpiry(command);
       if (command.action === "call") {
         if (!targetMatches(command)) return outcome("failed", "The exact configured chat is not open.");
@@ -124,16 +133,35 @@
         // Cliq confirms Away/Busy/Offline/DND presence through the same audio
         // dialog. Only the prompt appearing after our own Audio Call action can
         // be accepted; its presence label does not change the user's intent.
-        let confirmedPresence = false;
+        let confirmedPresence = false, cancelledBusyPrompt = null;
         const started = await waitFor(command, () => {
           checkExpiry(command);
           if (!targetMatches(command)) throw new Error("The selected chat changed while waiting for call confirmation.");
           tick();
           if (getCall()?.direction === "outgoing" || snapshot().dialing) return true;
-          const start = audioPresenceStart();
-          if (start && !confirmedPresence) { checkExpiry(command); confirmedPresence = true; start.click(); }
+          const presence = audioPresencePrompt();
+          if (presence?.start && !confirmedPresence) {
+            checkExpiry(command); confirmedPresence = true;
+            if (command.busy_fallback && presence.busy) {
+              if (!presence.cancel) throw new Error("The busy confirmation could not be cancelled safely.");
+              cancelledBusyPrompt = presence.prompt; presence.cancel.click(); return "busy";
+            }
+            presence.start.click();
+          }
           return false;
         });
+        if (started === "busy") {
+          const cancelled = await waitFor(command, () => {
+            checkExpiry(command);
+            if (!targetMatches(command)) throw new Error("The selected chat changed after the busy confirmation.");
+            tick();
+            const state = snapshot();
+            return !visible(cancelledBusyPrompt) && !presencePrompts().length && !getCall()
+              && !state.callPanel && !state.hangup && !state.dialing;
+          });
+          return cancelled ? {...outcome("failed", "The recipient is busy; the outgoing call was cancelled."), code: "recipient_busy"}
+            : outcome("ambiguous", "The busy prompt was cancelled, but call closure could not be confirmed.");
+        }
         return started ? outcome("succeeded", "Outbound audio call started.", getCall()?.call_id || "") : outcome("ambiguous", "Cliq did not confirm dialing. The command will not be repeated.");
       }
       if (command.action === "answer" || command.action === "hangup") {

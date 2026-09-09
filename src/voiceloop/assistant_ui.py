@@ -154,6 +154,14 @@ def _job_time(job):
         return str(value or "—")
 
 
+def _call_status(job):
+    return (
+        "Recipient busy"
+        if job.get("delivery_kind") == "busy_fallback"
+        else _status(job.get("state", ""))
+    )
+
+
 class _HistoryPager(QWidget):
     """Small reusable search and pagination controls; state stays local to its page."""
 
@@ -235,18 +243,25 @@ def render_assistant_job(job: dict) -> str:
         return html.escape(str(value or "")).replace("\n", "<br>")
 
     title = escape(job.get("target_name") or "Assistant call")
-    state = escape(_status(job.get("state", "")))
+    busy_fallback = job.get("delivery_kind") == "busy_fallback"
+    state = escape(_call_status(job))
     objective = escape(job.get("objective", ""))
     parts = [
         '<html><body style="font-family:Segoe UI, sans-serif;color:#20242D">',
         f'<h2>{title}</h2><p style="color:#626977">{state}</p>',
         f"<p><b>Objective</b><br>{objective}</p>",
     ]
-    for key, caption in (("summary", "Summary"), ("error", "Status details")):
+    details = (
+        (("fallback_text", "Busy fallback message"), ("fallback_reason", "Busy confirmation"))
+        if busy_fallback
+        else (("summary", "Summary"),)
+    )
+    for key, caption in (*details, ("error", "Status details")):
         if job.get(key):
             parts.append(f"<p><b>{caption}</b><br>{escape(job[key])}</p>")
     if job.get("delivery_status"):
-        parts.append(f"<p><b>Summary delivery</b><br>{escape(_status(job['delivery_status']))}</p>")
+        caption = "Message delivery" if busy_fallback else "Summary delivery"
+        parts.append(f"<p><b>{caption}</b><br>{escape(_status(job['delivery_status']))}</p>")
         if job["delivery_status"] == "ambiguous":
             parts.append(
                 "<p>Check the chat before sending again; delivery could not be confirmed.</p>"
@@ -263,7 +278,7 @@ def render_assistant_job(job: dict) -> str:
                     parts.append(
                         f"<p><b>{escape(speaker)}</b><br>{escape(turn.get('text', ''))}</p>"
                     )
-    else:
+    elif not busy_fallback:
         parts.append(
             '<p style="color:#626977">A transcript appears here after the assistant speaks.</p>'
         )
@@ -286,7 +301,12 @@ class AssistantHistoryDialog(QDialog):
         self.reader.setOpenLinks(False)
         self.reader.setAccessibleName("Call transcript and summary")
         self.reader.setHtml(render_assistant_job(job))
-        self.tabs.addTab(self.reader, "Conversation & summary")
+        self.tabs.addTab(
+            self.reader,
+            "Busy fallback message"
+            if job.get("delivery_kind") == "busy_fallback"
+            else "Conversation & summary",
+        )
         self.json = QPlainTextEdit()
         self.json.setReadOnly(True)
         self.json.setAccessibleName("Call JSON")
@@ -556,6 +576,14 @@ class AssistantPage(_ServicePage):
             "never switches to a different account to place a call.",
         )
         body.addWidget(label("Automatic behavior", "sectionTitle"))
+        self.busy_fallback_enabled = QCheckBox("Send objective as a message when recipient is busy")
+        self.busy_fallback_enabled.setChecked(self.service.config.busy_fallback_enabled)
+        self.busy_fallback_enabled.setToolTip(
+            "Sends the objective only after Cliq explicitly confirms the recipient is Busy "
+            "or on another call. Away and unanswered calls do not trigger a message. "
+            "This setting is independent of automatic call summaries."
+        )
+        body.addWidget(self.busy_fallback_enabled)
         self.auto_answer = QCheckBox("Answer allowed incoming Cliq calls")
         self.auto_assist_outgoing = QCheckBox(
             "Assist allowed outgoing Cliq calls after they connect"
@@ -766,7 +794,8 @@ class AssistantPage(_ServicePage):
         self.history_pager = _HistoryPager(self.refresh)
         body.addWidget(self.history_pager)
         self.history = _table(
-            ["Contact", "Call status", "Summary", "Scheduled / started"], "Assistant call history"
+            ["Contact", "Call status", "Chat delivery", "Scheduled / started"],
+            "Assistant call history",
         )
         self.history.itemSelectionChanged.connect(self.show_job)
         self.history.itemClicked.connect(
@@ -814,6 +843,7 @@ class AssistantPage(_ServicePage):
             max_duration_seconds=self.duration.value(),
             profile_id=self.profile.currentData() or "",
             auto_answer=self.auto_answer.isChecked(),
+            busy_fallback_enabled=self.busy_fallback_enabled.isChecked(),
             auto_assist_outgoing=self.auto_assist_outgoing.isChecked(),
             auto_assist_meet=self.auto_assist_meet.isChecked(),
             platforms=tuple(
@@ -1144,7 +1174,7 @@ class AssistantPage(_ServicePage):
                 [
                     (
                         job.get("target_name", "Call"),
-                        _status(job.get("state", "")),
+                        _call_status(job),
                         _status(job.get("delivery_status", "not_requested")),
                         _job_time(job),
                     )
@@ -1217,18 +1247,26 @@ class AutomationPage(_ServicePage):
         )
         self.content.addWidget(panel)
         panel, body = card()
-        body.addWidget(label("Summary delivery", "sectionTitle"))
+        body.addWidget(label("Chat message delivery", "sectionTitle"))
+        body.addWidget(
+            _plain(
+                "Call summaries and busy fallback messages appear here. Configure busy "
+                "messages separately in AI Assistant → Settings.",
+                "muted",
+            )
+        )
         self.history_pager = _HistoryPager(self.refresh)
         body.addWidget(self.history_pager)
         self.history = _table(
-            ["Contact", "Delivery status", "Call status"], "Summary delivery history"
+            ["Contact", "Delivery status", "Call status", "Message type"],
+            "Chat message delivery history",
         )
         self.history.itemSelectionChanged.connect(self.show_job)
         self.history.itemClicked.connect(
             lambda item: self.open_history() if item.column() == 0 else None
         )
         body.addWidget(self.history)
-        self.empty = _plain("Call summaries and their delivery status will appear here.")
+        self.empty = _plain("Chat messages and their delivery status will appear here.")
         body.addWidget(self.empty)
         self.open_history_button = QPushButton("Open in Recordings")
         self.open_history_button.clicked.connect(self.open_history)
@@ -1238,7 +1276,7 @@ class AutomationPage(_ServicePage):
             alignment=Qt.AlignmentFlag.AlignLeft,
         )
         self.reader = QTextBrowser()
-        self.reader.setAccessibleName("Summary delivery details")
+        self.reader.setAccessibleName("Chat message delivery details")
         self.reader.setOpenExternalLinks(False)
         self.reader.setOpenLinks(False)
         self.reader.setMinimumHeight(220)
@@ -1305,7 +1343,10 @@ class AutomationPage(_ServicePage):
                     (
                         job.get("target_name", "Call"),
                         _status(job.get("delivery_status")),
-                        _status(job.get("state", "")),
+                        _call_status(job),
+                        "Busy fallback"
+                        if job.get("delivery_kind") == "busy_fallback"
+                        else "Call summary",
                     )
                     for job in jobs
                 ],

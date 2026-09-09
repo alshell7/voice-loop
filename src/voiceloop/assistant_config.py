@@ -7,6 +7,7 @@ import os
 import re
 import tempfile
 import threading
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -32,6 +33,16 @@ DEFAULT_SUMMARY_INSTRUCTIONS = (
     "Use at most 4 short bullets. Preserve uncertainty and do not invent details."
 )
 _SAVE_LOCK = threading.RLock()
+
+
+class RecipientResolutionError(ValueError):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(
+            "More than one contact matches. Use the full saved name."
+            if code == "recipient_ambiguous"
+            else "No saved contact matches. Add the contact or use its full saved name."
+        )
 
 
 def _text(value: object, name: str, limit: int, *, empty: bool = False) -> str:
@@ -120,6 +131,7 @@ class AssistantSettings:
     default_objective: str = ""
     max_duration_seconds: int = 90
     busy: bool = False
+    busy_fallback_enabled: bool = False
     profile_id: str = ""
     auto_answer: bool = False
     auto_assist_outgoing: bool = False
@@ -155,6 +167,7 @@ class AssistantSettings:
         for name in (
             "enabled",
             "busy",
+            "busy_fallback_enabled",
             "auto_answer",
             "auto_assist_outgoing",
             "auto_assist_meet",
@@ -216,6 +229,31 @@ class AssistantSettings:
 
     def target(self, target_id: str) -> ChatTarget | None:
         return next((target for target in self.targets if target.id == target_id), None)
+
+    def resolve_recipient(self, name: str) -> ChatTarget:
+        """Resolve an exact name or unique ordered word prefix; never fuzzy-guess."""
+
+        def words(value):
+            return unicodedata.normalize("NFKC", value).casefold().split()
+
+        query = words(_text(name, "Contact name", 120))
+        matches = [target for target in self.targets if words(target.name) == query]
+        if not matches:
+            for target in self.targets:
+                candidate = words(target.name)
+                if any(
+                    all(
+                        candidate[start + offset].startswith(word)
+                        for offset, word in enumerate(query)
+                    )
+                    for start in range(len(candidate) - len(query) + 1)
+                ):
+                    matches.append(target)
+        if len(matches) != 1:
+            raise RecipientResolutionError(
+                "recipient_ambiguous" if matches else "recipient_not_found"
+            )
+        return matches[0]
 
     def make_cliq_target(self, name: str, value: str, **flags) -> ChatTarget:
         value = _text(value, "Cliq chat ID or link", 1000)

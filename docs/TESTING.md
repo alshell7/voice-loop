@@ -1,13 +1,28 @@
 # Verification record
 
 Local host: Windows 11 x64, Python 3.13.14, SoundCard 0.4.6, NumPy 2.5.3,
-PySide6 Essentials 6.11.2, keyring 25.7.0. The current development build is 0.5.0;
+PySide6 Essentials 6.11.2, keyring 25.7.0. The current development build is 0.5.1;
 earlier released checks are labeled below. Live assistant-call verification
 remains separate from automated and packaging results.
 
+## 0.5.1 name scheduling and busy fallback
+
+- Full Python suite: **546 passed in 79.68 seconds**. Extension suite:
+  **127 Node tests passed**. Native source UI and MCP startup checks pass.
+- Tests cover unique/ambiguous names, unchanged ID-based requests, relative
+  delays and DST, strict saved-name resolution, and actionable MCP errors.
+- Busy fallback tests cover exact owned prompt detection, alternate body markup,
+  negated statuses, confirmed cancellation, updated-extension capability,
+  policy revocation, exact objective/recipient delivery, duplicate results, and
+  uncertain sends without retries. Busy messages do not require summary opt-in.
+- No real call or message was sent for these changes. Busy detection currently
+  recognizes explicit English Cliq audio-call confirmation prompts; arbitrary
+  post-dial error dialogs, localized variants, and unanswered calls are not
+  treated as evidence that a recipient is busy.
+
 ## AI Assistant and Automation implementation checks
 
-- The most recent full Python run passed **489 tests in 69.26 seconds**.
+- The 0.5.0 full Python run passed **489 tests in 69.26 seconds**.
   Realtime-focused checks also passed after the opening-response correction.
   Ruff lint and formatting checks, and actionlint workflow checks, pass. The
   browser extension suite passes **99 Node tests**, including multiline draft

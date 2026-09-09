@@ -48,9 +48,11 @@ export function normalizeCommand(command, profileId, now = Date.now()) {
   if (command.provider === "zoho_cliq" ? !target : command.provider !== "google_meet" || command.action !== "hangup" || command.chat_id || command.chat_url) return null;
   if (typeof command.text !== "string" || command.text.length > 4000 || /[\u0000-\u0008\u000b-\u001f\u007f]/.test(command.text)) return null;
   if (command.action === "send_summary" && !command.text.trim()) return null;
+  const busyFallback = command.busy_fallback === undefined ? false : command.busy_fallback;
+  if (typeof busyFallback !== "boolean" || busyFallback && (command.action !== "call" || command.call_id)) return null;
   return {version: 1, command_id: command.command_id, profile_id: profileId, action: command.action,
     provider: command.provider, call_id: command.call_id, chat_id: target?.chat_id || "", chat_url: target?.chat_url || "",
-    participant_id: participantId, text: command.text, expires_at: new Date(expires).toISOString()};
+    participant_id: participantId, text: command.text, busy_fallback: busyFallback, expires_at: new Date(expires).toISOString()};
 }
 export function queueLatest(outbox, event, now = Date.now()) {
   // One latest state per call prevents replay of a completed offline call.

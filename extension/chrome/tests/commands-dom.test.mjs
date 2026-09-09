@@ -67,6 +67,79 @@ for (const presence of ["Away", "Busy", "Offline", "Do Not Disturb"]) {
     assert.deepEqual(b.clicks, {menu: 1, audio: 1, start: 1});
   });
 }
+
+for (const presence of ["Busy", "On another call", "In another call", "On a call"]) {
+  test(`opted-in busy fallback cancels the owned ${presence} prompt before returning its code`, async t => {
+    const b = presenceFixture(presence); t.after(b.close);
+    let cancelled = 0;
+    b.d.querySelector("[button='1']").onclick = () => { cancelled++; b.d.querySelector("#callConfirmation").hidden = true; };
+    const result = await b.execute({busy_fallback: true});
+    assert.equal(result.status, "failed"); assert.equal(result.code, "recipient_busy"); assert.equal(result.call_id, "");
+    assert.equal(cancelled, 1); assert.deepEqual(b.clicks, {menu: 1, audio: 1, start: 0});
+  });
+}
+
+for (const presence of ["Away", "Offline", "Do Not Disturb", "Not busy", "Busy soon"]) {
+  test(`busy fallback never treats ${presence} as an explicit busy result`, async t => {
+    const b = presenceFixture(presence); t.after(b.close);
+    const result = await b.execute({busy_fallback: true});
+    assert.equal(result.status, "succeeded"); assert.equal(result.code, undefined); assert.equal(b.clicks.start, 1);
+  });
+}
+
+test("busy fallback disabled preserves automatic Start confirmation", async t => {
+  const b = presenceFixture("Busy"); t.after(b.close);
+  const result = await b.execute({busy_fallback: false});
+  assert.equal(result.status, "succeeded"); assert.equal(result.code, undefined); assert.equal(b.clicks.start, 1);
+});
+
+test("busy fallback recognizes the exact sentence independently of body wrappers or bold status", async t => {
+  const b = presenceFixture("Busy"); t.after(b.close);
+  const alternate = b.d.createElement("section");
+  alternate.innerHTML = "<span>The user's status is </span><span>On another call</span><span>. Do you still want to proceed with the call?</span>";
+  b.d.querySelector(".mheader_p").replaceWith(alternate);
+  b.d.querySelector("[button='1']").onclick = () => { b.d.querySelector("#callConfirmation").hidden = true; };
+  const result = await b.execute({busy_fallback: true});
+  assert.equal(result.status, "failed"); assert.equal(result.code, "recipient_busy"); assert.equal(b.clicks.start, 0);
+});
+
+test("a stale busy prompt never yields recipient_busy or clicks Cancel", async t => {
+  const b = presenceFixture("Busy", {preexisting: true}); t.after(b.close);
+  let cancelled = 0; b.d.querySelector("[button='1']").onclick = () => cancelled++;
+  const result = await b.execute({busy_fallback: true});
+  assert.equal(result.status, "failed"); assert.equal(result.code, undefined); assert.equal(cancelled, 0);
+});
+
+for (const cause of ["missing-cancel", "duplicate-cancel", "still-open", "call-active", "wrong-body", "negated-status"]) {
+  test(`busy fallback fails closed when confirmation is not authoritative: ${cause}`, async t => {
+    const b = presenceFixture("Busy"); t.after(b.close);
+    const cancel = b.d.querySelector("[button='1']");
+    if (cause === "missing-cancel") cancel.remove();
+    if (cause === "duplicate-cancel") cancel.after(cancel.cloneNode(true));
+    if (cause === "call-active") cancel.onclick = () => { b.d.querySelector("#callConfirmation").hidden = true; b.setSnapshot({callPanel: true, dialing: true}); };
+    if (cause === "wrong-body") b.d.querySelector(".mheader_p").innerHTML = "You have <b>Busy</b> messages. Start this call?";
+    if (cause === "negated-status") b.d.querySelector(".mheader_p").innerHTML = "The user's status is not <b>Busy</b>. Do you still want to proceed with the call?";
+    const result = await b.execute({busy_fallback: true, expires_at: new Date(Date.now() + 250).toISOString()});
+    assert.equal(result.code, undefined);
+    if (["wrong-body", "negated-status"].includes(cause)) assert.equal(result.status, "succeeded");
+    else { assert.equal(result.status, "ambiguous"); assert.equal(b.clicks.start, 0); }
+  });
+}
+
+for (const cause of ["expiry", "context", "target"]) {
+  test(`busy fallback cannot report safe cancellation after ${cause} changes`, async t => {
+    const b = presenceFixture("Busy"); t.after(b.close);
+    const before = Date.now();
+    b.d.querySelector("[button='1']").onclick = () => {
+      b.d.querySelector("#callConfirmation").hidden = true;
+      if (cause === "expiry") b.w.Date.now = () => before + 5000;
+      else if (cause === "context") b.setActive(false);
+      else b.w.history.replaceState({}, "", "/company/987/chats/99999");
+    };
+    const result = await b.execute({busy_fallback: true, expires_at: new Date(before + 1000).toISOString()});
+    assert.equal(result.status, "ambiguous"); assert.equal(result.code, undefined); assert.equal(b.clicks.start, 0);
+  });
+}
 test("an existing call confirmation is never inherited or clicked by a new command", async t => {
   const b = presenceFixture("Away", {preexisting: true}); t.after(b.close);
   const result = await b.execute({}); assert.equal(result.status, "failed");

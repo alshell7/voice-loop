@@ -251,6 +251,78 @@ def test_language_accepts_custom_and_follow_caller(page):
     assert page.service.config.language == "auto"
 
 
+def test_busy_fallback_setting_is_opt_in_and_independent_of_summaries(page):
+    assert not page.busy_fallback_enabled.isChecked()
+    assert not page.service.config.busy_fallback_enabled
+    page.busy_fallback_enabled.setChecked(True)
+    page.save_settings()
+    assert page.service.config.busy_fallback_enabled
+    assert not page.service.config.automation_enabled
+    automation = AutomationPage(page.service)
+    automation.enabled.setChecked(True)
+    automation.save_settings()
+    assert page.service.config.busy_fallback_enabled
+    page.busy_fallback_enabled.setChecked(False)
+    page.save_settings()
+    assert not page.service.config.busy_fallback_enabled
+    assert page.service.config.automation_enabled
+    automation.deleteLater()
+
+
+def test_busy_fallback_history_renders_message_without_inventing_conversation(page):
+    job = {
+        "id": "busy-call",
+        "target_name": "Alex",
+        "state": "failed",
+        "objective": "Confirm tomorrow’s appointment.",
+        "delivery_kind": "busy_fallback",
+        "delivery_status": "sent",
+        "fallback_reason": "Recipient is on another call <busy>",
+        "fallback_text": "Reminder: confirm the appointment.\n<img src=https://invalid>",
+        "transcript": [],
+    }
+    page.service.jobs = [job]
+    page.refresh()
+    assert page.history.item(0, 1).text() == "Recipient busy"
+    assert page.history.item(0, 2).text() == "Sent to chat"
+    assert "Busy fallback message" in page.reader.toPlainText()
+    assert "Message delivery" in page.reader.toPlainText()
+    assert "Summary delivery" not in page.reader.toPlainText()
+    assert "A transcript appears here" not in page.reader.toPlainText()
+    rendered = render_assistant_job(job)
+    assert "<img" not in rendered and "&lt;img" in rendered
+    assert "&lt;busy&gt;" in rendered
+    dialog = AssistantHistoryDialog(job)
+    assert dialog.tabs.tabText(0) == "Busy fallback message"
+    assert json.loads(dialog.json.toPlainText())["fallback_text"] == job["fallback_text"]
+    dialog.deleteLater()
+
+
+def test_automation_history_distinguishes_busy_messages_and_summaries(page):
+    page.service.jobs = [
+        {
+            "id": "busy",
+            "state": "failed",
+            "delivery_kind": "busy_fallback",
+            "delivery_status": "sent",
+            "fallback_text": "A brief reminder.",
+        },
+        {
+            "id": "summary",
+            "state": "completed",
+            "delivery_status": "sent",
+            "summary": "Appointment confirmed.",
+        },
+    ]
+    automation = AutomationPage(page.service)
+    assert automation.history.rowCount() == 2
+    assert automation.history.item(0, 3).text() == "Busy fallback"
+    assert automation.history.item(1, 3).text() == "Call summary"
+    assert "A brief reminder." in automation.reader.toPlainText()
+    assert not automation.enabled.isChecked()
+    automation.deleteLater()
+
+
 def test_history_paging_search_and_open_callback(page):
     opened = []
     page.on_open_history = opened.append

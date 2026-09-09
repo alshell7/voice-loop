@@ -42,6 +42,11 @@ test("command protocol permits only current exact-profile actions and targets", 
     assert.equal(normalizeCommand({...command, ...patch}, "profile-1", now), null);
   }
   assert.equal(normalizeCommand({...command, action: "hangup", provider: "google_meet", call_id: "meet-call", chat_id: "", chat_url: ""}, "profile-1", now).action, "hangup");
+  assert.equal(normalizeCommand(command, "profile-1", now).busy_fallback, false);
+  assert.equal(normalizeCommand({...command, busy_fallback: true}, "profile-1", now).busy_fallback, true);
+  for (const busy_fallback of [null, 1, "true", {}, []]) assert.equal(normalizeCommand({...command, busy_fallback}, "profile-1", now), null);
+  assert.equal(normalizeCommand({...command, action: "send_summary", text: "Objective", busy_fallback: true}, "profile-1", now), null);
+  assert.equal(normalizeCommand({...command, call_id: "existing-call", busy_fallback: true}, "profile-1", now), null);
   assert.equal(chatTarget("https://user@cliq.zoho.com/company/987/chats/12345", "12345"), null);
 });
 test("optional event chat identity cannot cross origin or forge worker correlation", () => {

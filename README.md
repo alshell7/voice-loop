@@ -120,7 +120,10 @@ global setting and each recipient's summary permission must both be enabled.
 Uncertain calls or message deliveries are not retried automatically.
 
 A bundled **MCP server** lets Codex and other MCP clients inspect status, request
-an authorized call, schedule one, read its outcome, and cancel it. Keep Voice
+an authorized call by saved contact name, schedule it with a relative delay or
+absolute time, read its outcome, and cancel it. For example, ask Codex to call a
+saved contact in three hours with a specific reminder; a unique name needs no
+chat ID. Keep Voice
 Loop and the paired Chrome profile running; schedules more than 120 seconds
 late expire. Normal Quit allows up to eight seconds for hangup and saving the
 assistant result. The extension handles Cliq's Away/Busy audio-call confirmation

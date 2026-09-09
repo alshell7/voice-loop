@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.1 (prerelease)
+
+- Resolve MCP recipients by a unique saved name or word prefix, with clear
+  ambiguity handling. Schedule relative delays such as three hours without
+  requiring the user to supply a chat ID or timestamp.
+- Add an opt-in busy-message fallback. Cancel an owned Cliq Busy/on-another-call
+  confirmation and send the exact objective once, using the original chat and
+  profile. Timeouts and unanswered calls do not authorize messages.
+- Show busy fallback messages separately from call summaries in local history.
+  Recheck permissions before sending, cancel queued messages when disabled, and
+  never automatically retry uncertain delivery.
+- Require an updated extension capability before enabling busy fallback calls.
+
 ## 0.5.0 (prerelease)
 
 - Add AI Assistant with configurable OpenAI Realtime model, voice, instructions,

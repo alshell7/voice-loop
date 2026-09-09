@@ -318,6 +318,7 @@ class BrowserBridge:
         call_id="",
         participant_id="",
         text="",
+        busy_fallback=False,
         command_id=None,
         ttl=45,
     ):
@@ -329,6 +330,8 @@ class BrowserBridge:
         """
         if action not in {"call", "answer", "hangup", "send_summary"}:
             raise ValueError("Unsupported browser action.")
+        if type(busy_fallback) is not bool or (busy_fallback and (action != "call" or call_id)):
+            raise ValueError("Busy fallback must be a boolean option for outgoing calls.")
         profile_id = _identifier(profile_id, "profile ID")
         command_id = _identifier(command_id or str(uuid4()), "command ID")
         if call_id:
@@ -366,6 +369,7 @@ class BrowserBridge:
                         "call_id": call_id,
                         "participant_id": participant_id,
                         "text": text,
+                        "busy_fallback": busy_fallback,
                     }.items()
                 ):
                     raise ValueError("Command ID already belongs to another action.")
@@ -382,6 +386,8 @@ class BrowserBridge:
                 raise ValueError(
                     "The selected Chrome profile is not connected with call control enabled."
                 )
+            if busy_fallback and "busy-fallback-v1" not in profile["capabilities"]:
+                raise ValueError("Reload the Voice Loop extension to enable busy fallback.")
             command = {
                 "version": 1,
                 "command_id": command_id,
@@ -393,6 +399,7 @@ class BrowserBridge:
                 "call_id": call_id,
                 "participant_id": participant_id,
                 "text": text,
+                "busy_fallback": busy_fallback,
                 "expires_at": datetime.fromtimestamp(time.time() + ttl, UTC).isoformat(),
             }
             self._commands[command_id] = {"command": command, "leased": False, "result": None}
@@ -415,13 +422,15 @@ class BrowserBridge:
                 self._finish_command(record, "failed", "Cancelled before delivery.")
             return "cancelled"
 
-    def _finish_command(self, record, status, detail, call_id=""):
+    def _finish_command(self, record, status, detail, call_id="", code=""):
         command = record["command"]
         result = {
             key: command[key]
             for key in ("command_id", "profile_id", "action", "chat_id", "chat_url")
         }
         result.update(status=status, detail=detail, call_id=call_id or command["call_id"])
+        if code:
+            result["code"] = code
         record["result"] = result
         self._results.append(result)
         self._results = self._results[-512:]
@@ -468,7 +477,7 @@ class BrowserBridge:
             if path == "/v1/commands/poll":
                 capabilities = payload.get("capabilities", [])
                 if not isinstance(capabilities, list) or any(
-                    value not in {"call-control-v1", "zoho_cliq", "google_meet"}
+                    value not in {"call-control-v1", "busy-fallback-v1", "zoho_cliq", "google_meet"}
                     for value in capabilities
                 ):
                     raise ValueError("Invalid capabilities.")
@@ -509,8 +518,19 @@ class BrowserBridge:
             call_id = payload.get("call_id", "")
             if call_id:
                 _identifier(call_id, "call ID")
+            code = payload.get("code", "")
+            command = record["command"]
+            if code != "" and (
+                code != "recipient_busy"
+                or status != "failed"
+                or command["action"] != "call"
+                or not command["busy_fallback"]
+                or call_id
+                or command["call_id"]
+            ):
+                raise ValueError("Invalid command outcome code.")
             if not record["result"]:
-                self._finish_command(record, status, detail, call_id)
+                self._finish_command(record, status, detail, call_id, code)
             return {"ok": True}
 
 

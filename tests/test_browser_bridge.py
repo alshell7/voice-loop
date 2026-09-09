@@ -255,11 +255,16 @@ def command_request(bridge, endpoint, value):
     return status, json.loads(body)
 
 
-def poll(bridge, profile="profile-1"):
+def poll(bridge, profile="profile-1", *, busy=False):
     return command_request(
         bridge,
         "poll",
-        {"version": 1, "profile_id": profile, "capabilities": ["call-control-v1", "zoho_cliq"]},
+        {
+            "version": 1,
+            "profile_id": profile,
+            "capabilities": ["call-control-v1", "zoho_cliq"]
+            + (["busy-fallback-v1"] if busy else []),
+        },
     )
 
 
@@ -281,6 +286,7 @@ def test_commands_are_profile_bound_once_delivered_and_results_idempotent(bridge
     command = poll(bridge)[1]["commands"][0]
     assert command["command_id"] == command_id
     assert command["chat_id"] == "12345"
+    assert command["busy_fallback"] is False
     assert poll(bridge)[1]["commands"] == []  # Never redial on lost response.
     result = {
         "version": 1,
@@ -299,6 +305,72 @@ def test_commands_are_profile_bound_once_delivered_and_results_idempotent(bridge
     assert results[0]["status"] == "succeeded"
     assert queue_call(bridge, command_id=command_id) == command_id
     assert poll(bridge)[1]["commands"] == []
+
+
+def test_busy_fallback_is_explicit_and_its_result_is_idempotent(bridge):
+    poll(bridge, busy=True)
+    command_id = queue_call(bridge, busy_fallback=True)
+    assert poll(bridge)[1]["commands"][0]["busy_fallback"] is True
+    result = {
+        "version": 1,
+        "profile_id": "profile-1",
+        "command_id": command_id,
+        "status": "failed",
+        "call_id": "",
+        "detail": "The recipient is busy; the outgoing call was cancelled.",
+        "code": "recipient_busy",
+    }
+    for patch in (
+        {"status": "succeeded"},
+        {"status": "ambiguous"},
+        {"call_id": "active"},
+        {"code": "unknown"},
+        {"code": None},
+    ):
+        assert command_request(bridge, "result", result | patch)[0] == 400
+    assert command_request(bridge, "result", result)[0] == 200
+    assert command_request(bridge, "result", result)[0] == 200
+    results = bridge.drain_results()
+    assert len(results) == 1
+    assert results[0]["code"] == "recipient_busy"
+    assert results[0]["call_id"] == ""
+    with pytest.raises(ValueError, match="another action"):
+        queue_call(bridge, command_id=command_id, busy_fallback=False)
+
+
+def test_busy_code_cannot_enable_fallback_for_a_command_without_opt_in(bridge):
+    poll(bridge)
+    command_id = queue_call(bridge)
+    poll(bridge)
+    result = {
+        "version": 1,
+        "profile_id": "profile-1",
+        "command_id": command_id,
+        "status": "failed",
+        "detail": "Busy",
+        "code": "recipient_busy",
+    }
+    assert command_request(bridge, "result", result)[0] == 400
+    assert bridge.drain_results() == []
+
+
+@pytest.mark.parametrize("value", [None, 1, "true", [], {}])
+def test_busy_fallback_rejects_non_boolean_values(bridge, value):
+    with pytest.raises(ValueError, match="Busy fallback"):
+        queue_call(bridge, busy_fallback=value)
+
+
+def test_busy_fallback_cannot_be_added_to_message_commands(bridge):
+    with pytest.raises(ValueError, match="Busy fallback"):
+        bridge.submit_command("send_summary", profile_id="profile-1", busy_fallback=True)
+
+
+def test_busy_fallback_requires_a_new_call_and_an_updated_extension(bridge):
+    poll(bridge)
+    with pytest.raises(ValueError, match="Reload"):
+        queue_call(bridge, busy_fallback=True)
+    with pytest.raises(ValueError, match="Busy fallback"):
+        queue_call(bridge, busy_fallback=True, call_id="existing-call")
 
 
 def test_cancellation_prevents_undelivered_call_but_reports_leased_uncertainty(bridge):
