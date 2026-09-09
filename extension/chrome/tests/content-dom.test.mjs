@@ -194,6 +194,22 @@ test("observed Cliq provisional ID handoff then split-span timer retains command
   assert.equal(b.events.some(event => event.state === "ended"), false);
 });
 
+test("real content preserves a pending call through missing callid then server ID and Connected", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  const wrapper = b.document.querySelector("[mediacallwrapper]"), callId = b.events.at(-1).call_id;
+  wrapper.setAttribute("calleeid", "111222333");
+  await b.advance(1000);
+  wrapper.removeAttribute("callid");
+  await b.advance(500);
+  wrapper.setAttribute("callid", "server-call");
+  wrapper.querySelector("[statuscontent]").textContent = "Connected";
+  await b.advance(500); await b.advance(1000);
+  assert.equal(b.events.some(event => event.state === "ended"), false);
+  assert.equal(b.events.at(-1).state, "connected"); assert.equal(b.events.at(-1).call_id, callId);
+  assert.equal(b.events.at(-1).participant_id, "111222333");
+  assert.ok(b.events.some(event => event.event_id.startsWith("native-handoff-")));
+});
+
 test("an exact visible Connected status activates a retained outgoing layout without a timer", async t => {
   const b = await browserFixture("cliq-outgoing"); t.after(b.close);
   const callId = b.events.at(-1).call_id;

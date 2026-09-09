@@ -282,6 +282,7 @@ class AssistantService:
             matched = True
             job["call_id"] = event.call_id
             job["browser_state"] = "disconnected"
+            self._record_browser_event(job, event)
             job["browser_disconnected"] = True
             job["error"] = "Browser extension disconnected. Check and end the call in Chrome."
             if job["state"] not in TERMINAL:
@@ -335,6 +336,7 @@ class AssistantService:
                 if self._event_matches_job(event, job):
                     job["call_id"] = event.call_id
                     job["browser_state"] = event.state
+                    self._record_browser_event(job, event)
                     participant = getattr(event, "participant_id", "")
                     if participant:
                         job["participant_id"] = participant
@@ -414,6 +416,7 @@ class AssistantService:
                 continue
             job["call_id"] = event.call_id
             job["browser_state"] = event.state
+            self._record_browser_event(job, event)
             self._seen_calls.add((event.profile_id, event.provider, event.call_id))
             if event.state == "ended":
                 job["browser_ended"] = True
@@ -422,6 +425,28 @@ class AssistantService:
             self.store.put(job)
             return True
         return False
+
+    @staticmethod
+    def _record_browser_event(job, event):
+        # Keep a small identifier-free lifecycle trace. In particular, a native
+        # ID replacement and an explicit remote end must remain distinguishable.
+        reasons = (
+            "native-handoff",
+            "native-replaced",
+            "ui-ended",
+            "ui-absent",
+            "pagehide",
+            "tab-closed",
+            "unpaired",
+        )
+        reason = next((value for value in reasons if event.event_id.startswith(value + "-")), "")
+        entry = {"state": event.state, "reason": reason}
+        history = job.setdefault("browser_events", [])
+        if not history or any(history[-1].get(key) != value for key, value in entry.items()):
+            history.append({**entry, "timestamp": event.timestamp})
+            del history[:-32]
+        if event.state == "ended":
+            job["browser_end_reason"] = reason or "browser-ended"
 
     def event_chat_url(self, event):
         if event.chat_url:

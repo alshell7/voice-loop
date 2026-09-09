@@ -1,29 +1,46 @@
 # Verification record
 
 Local host: Windows 11 x64, Python 3.13.14, SoundCard 0.4.6, NumPy 2.5.3,
-PySide6 Essentials 6.11.2, keyring 25.7.0. The current development build is 0.5.1;
+PySide6 Essentials 6.11.2, keyring 25.7.0. The current development build is 0.5.2;
 earlier released checks are labeled below. Live assistant-call verification
 remains separate from automated and packaging results.
 
-## Pending call reliability fixes
+## Call reliability fixes
 
-- Full Python run: **549 passed in 87.21 seconds**. After the final audio
-  changes, **38 focused audio/Realtime tests passed**. Extension suite:
-  **135 tests passed**. Ruff lint and formatting checks pass.
-- Reproduced a reported 276,480-frame generated speech burst using a simulated
+- Final full Python suite: **574 passed in 84.38 seconds**. Extension suite:
+  **145 tests passed**. Closing-path checks also passed **54 focused audio/Realtime
+  tests**. Ruff lint and formatting checks pass.
+- Reproduced the reported 276,480-frame generated speech burst using a simulated
   audio transport. It now plays without loss. Tests cover bounded staging,
-  playback backpressure, actual output stalls, stale-packet discard, and user
-  interruptions while closing speech is still playing.
-- Detector fixtures cover exact Connected status, stale outgoing layout with
-  a running timer, and explicit ringing/server-only states that must not start
-  assistant audio. Coordinator tests reject false success before activation
-  and preserve the original failure when another shutdown condition occurs.
-- One authorized Windows Cliq call was attempted after restarting the source
-  app and reloading the extension. Observed Calling and Ringing, then a browser
-  ended event; no confirmed connection, assistant activation, audio upload, or
-  assistant-requested hangup occurred. The objective was not delivered. This
-  attempt does not verify the contact-specific connected-call behavior, live
-  playback, or assistant-initiated hangup. No automatic redial was performed.
+  backpressure, output stalls, and stale-packet discard.
+- Detector regressions cover Connected status, stale outgoing CSS, provisional
+  ID handoff through a missing callid attribute, fixed retention expiry, and
+  recipient/gap boundaries. Remembered identity never grants attendance.
+- Completed playback now preserves conversation context on an ordinary reply.
+  Only genuinely unfinished items are truncated, each at its own played offset.
+  Slow uploads cannot block response/VAD handling; batches preserve capture order.
+- On Windows virtual cables, a generated two-second tone measured **3.07 seconds
+  before the pacing fix and 2.06 seconds after**. Capture produced four seconds
+  of frames in 4.01 seconds wall time. No physical microphone or call was opened.
+- Two authorized paid OpenAI synthetic conversations asked two questions in order,
+  retained supplied answers, said goodbye, and called finish_call. These used
+  synthetic text replies and simulated playback acknowledgments, not a human
+  recipient or real input VAD.
+- Authorized live Windows/Chrome calls preserved the provisional-to-native ID
+  handoff and exchanged audio. A later check resolved the requested saved name
+  through MCP, connected for about 80 seconds, advanced to the second question,
+  and received confirmation of clear audio. Captured and uploaded frames matched
+  exactly (1,886,400 at 24 kHz), with no playback error or buffer saturation.
+  The assistant initiated hangup at the configured time limit; the browser
+  confirmed closure and the extension reported the summary sent.
+- That live check also exposed a goodbye loop during repeated interruptions.
+  It does **not** verify the subsequent committed finish_call fix in a live call.
+  The final closing change is checked with controlled event sequences. No private
+  recipient names, company/chat IDs, or spoken business details are in this record.
+- The final paid OpenAI synthetic check injected a late greeting after the model
+  accepted finish_call. The worker completed 0.136 seconds after acceptance,
+  without restarting the conversation. This validates the actual SDK interaction
+  and a simulated interruption, not recipient audio or a live browser hangup.
 
 ## 0.5.1 name scheduling and busy fallback
 

@@ -110,7 +110,11 @@ def _playback(device_id, outgoing, status, stop, generation, *, monitor=False):
                 player.play(np.repeat(data[:, None], channels, axis=1))
                 # SoundCard can return after queuing frames. Do not acknowledge
                 # the packet before its duration has elapsed on the device.
-                stop.wait(max(0, len(data) / DEVICE_RATE - (time.monotonic() - started)))
+                # multiprocessing.Event.wait uses a coarse Windows timer: a
+                # 20-ms packet can wait ~31 ms, inserting gaps into speech.
+                # Python's high-resolution sleep keeps packet duration accurate;
+                # cancellation still waits at most one 20-ms packet.
+                time.sleep(max(0, len(data) / DEVICE_RATE - (time.monotonic() - started)))
                 if not monitor:
                     status.put(("played", (serial, item, len(pcm) // 2, epoch)))
     except Exception as exc:
@@ -157,9 +161,8 @@ class CableAudio:
         self._buffered_frames = 0
         self._last_progress_at = 0.0
         self._serial = 0
-        self._last_item = ""
+        self._unplayed = {}
         self._played = {}
-        self._generated = {}
         self._last_played_at = 0.0
         self._started = False
         self._closed = False
@@ -263,6 +266,12 @@ class CableAudio:
                 serial, item, count, _epoch = value
                 self._pending.pop(serial, None)
                 self._played[item] = self._played.get(item, 0) + count
+                if _epoch == self._generation.value and item in self._unplayed:
+                    remaining = self._unplayed[item] - count
+                    if remaining > 0:
+                        self._unplayed[item] = remaining
+                    else:
+                        del self._unplayed[item]
                 self._stats["played_frames"] += count
                 self._last_played_at = time.monotonic()
                 self._last_progress_at = self._last_played_at
@@ -319,14 +328,14 @@ class CableAudio:
         if queued + count > MAX_BUFFERED_FRAMES:
             self._stats["playback_backpressure_count"] += 1
             return False
-        self._last_item = item_id
         epoch = self._generation.value
         for offset in range(0, len(pcm), PLAYBACK_FRAMES * 2):
             packet = pcm[offset : offset + PLAYBACK_FRAMES * 2]
             self._serial += 1
             self._buffer.append((packet, item_id, epoch, self._serial))
         self._buffered_frames += count
-        self._generated[item_id] = self._generated.get(item_id, 0) + count
+        if count:
+            self._unplayed[item_id] = self._unplayed.get(item_id, 0) + count
         self._stats["generated_frames"] += count
         self._stats["buffer_high_water_frames"] = max(
             self._stats["buffer_high_water_frames"], queued + count
@@ -335,17 +344,24 @@ class CableAudio:
         return True
 
     def interrupt(self):
+        """Discard queued speech and return only unfinished items to truncate.
+
+        A completed item's transcript must stay in the server conversation.
+        Generation can run ahead across several items, so each queued item has
+        its own actual played offset; the latest generated item is insufficient.
+        """
         self._poll()
+        truncations = [
+            {"item_id": item, "audio_end_ms": self._played.get(item, 0) * 1000 // REALTIME_RATE}
+            for item in self._unplayed
+        ]
         with self._generation.get_lock():
             self._generation.value += 1
+        self._unplayed.clear()
         self._stats["discarded_frames"] += self._buffered_frames
         self._buffer.clear()
         self._buffered_frames = 0
-        item = self._last_item
-        self._last_item = ""
-        if not item:
-            return None
-        return {"item_id": item, "audio_end_ms": self._played.get(item, 0) * 1000 // REALTIME_RATE}
+        return truncations
 
     def drained(self):
         self._poll()

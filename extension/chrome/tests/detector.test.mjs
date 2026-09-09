@@ -73,6 +73,57 @@ test("outgoing provisional native ID handoff preserves one logical call and raw 
   assert.equal(t.observe(attended, 3800).call_id, first.call_id);
   assert.equal(t.call.state, "connected");
 });
+
+for (const dialing of [true, false]) {
+  test(`same-recipient handoff tolerates a transient missing native ID while dialing=${dialing}`, () => {
+    const t = tracker();
+    const dial = {...outgoing, nativeCallKey: "provisional-key", participant_id: "111222333"};
+    const first = t.observe(dial, 0);
+    assert.equal(t.observe({...dial, nativeCallKey: "", dialing}, 100), null);
+    const handoff = t.observe({...dial, nativeCallKey: "server-key"}, 200);
+    assert.equal(handoff.state, "dialing"); assert.equal(handoff.call_id, first.call_id);
+    assert.equal(t.lastUpdateReason, "native-handoff");
+    const connected = {...dial, nativeCallKey: "server-key", dialing: false, elapsed: 2};
+    t.observe(connected, 500);
+    assert.equal(t.observe(connected, 1300).state, "connected");
+  });
+}
+
+test("remembered native identity cannot grant attendance or renew its own timeout", () => {
+  const t = tracker();
+  const dial = {...outgoing, nativeCallKey: "provisional-key", participant_id: "111222333"};
+  t.observe(dial, 0);
+  const missing = {...dial, nativeCallKey: "", dialing: false, elapsed: 3};
+  for (const at of [100, 1000, 4000]) {
+    assert.equal(t.observe(missing, at), null);
+    assert.equal(t.call.state, "dialing"); assert.equal(t.lastObservation.nativeAt, 0);
+  }
+  assert.equal(t.observe({...dial, nativeCallKey: "server-key"}, 5001).state, "ended");
+});
+
+test("expired missing native identity cannot activate from a Connected status", () => {
+  const t = tracker();
+  const dial = {...outgoing, nativeCallKey: "provisional-key", participant_id: "111222333"};
+  t.observe(dial, 0);
+  const missing = {...dial, nativeCallKey: "", dialing: false, elapsed: 10, explicitConnected: true};
+  for (const at of [100, 4000, 5001, 5801]) {
+    assert.equal(t.observe(missing, at), null);
+    assert.equal(t.call.state, "dialing");
+    assert.equal(t.candidateSince, null);
+  }
+  assert.equal(t.observe(missing, 7600).state, "ended");
+});
+
+for (const patch of [{participant_id: ""}, {participant_id: "999999999"}, {incoming: true}, {hangup: false}, {callPanel: false}]) {
+  test(`missing native ID cannot bridge an unverified interval: ${JSON.stringify(patch)}`, () => {
+    const t = tracker();
+    const dial = {...outgoing, nativeCallKey: "provisional-key", participant_id: "111222333"};
+    t.observe(dial, 0);
+    t.observe({...dial, nativeCallKey: "", dialing: false, ...patch}, 100);
+    assert.equal(t.observe({...dial, nativeCallKey: "server-key"}, 200).state, "ended");
+    assert.equal(t.lastEndReason, "native-replaced");
+  });
+}
 for (const boundary of ["recipient", "missing-participant", "incoming", "gap", "ended", "connected", "stale-observation", "provider"]) {
   test(`native call IDs are never merged across ${boundary} boundary`, () => {
     const t = tracker();

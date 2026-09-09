@@ -345,6 +345,35 @@ def test_call_ending_before_connection_is_not_completed(service):
     assert not worker.activated
 
 
+def test_browser_diagnostics_keep_transition_reason_without_private_identifiers(service):
+    job, _worker = waiting(service)
+    connected = event(service, command_id=job["command_id"])
+    service.handle_event(connected)
+    service.handle_event(connected)
+    ended = replace(connected, state="ended", event_id="native-replaced-private-id")
+    service.handle_event(ended)
+    stored = service.store.get(job["id"])
+    assert stored["browser_end_reason"] == "native-replaced"
+    history = stored["browser_events"]
+    assert [entry["state"] for entry in history] == ["connected", "ended"]
+    assert history[-1]["reason"] == "native-replaced"
+    assert all(set(entry) == {"state", "reason", "timestamp"} for entry in history)
+    assert "private-id" not in str(history)
+
+
+def test_browser_diagnostics_are_bounded_and_ignore_unknown_reason_text(service):
+    job = {}
+    for index in range(100):
+        observation = replace(
+            event(service),
+            state="connected" if index % 2 else "dialing",
+            event_id="private-unknown-source",
+        )
+        service._record_browser_event(job, observation)
+    assert len(job["browser_events"]) == 32
+    assert all(entry["reason"] == "" for entry in job["browser_events"])
+
+
 def test_manual_cancel_before_connection_remains_cancelled(service):
     job, worker = waiting(service)
     service.cancel(job["id"])

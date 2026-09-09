@@ -50,7 +50,21 @@
       this.lastEndReason = "";
       this.lastUpdateReason = "";
       const previous = this.lastObservation;
-      this.lastObservation = {at: now, nativeCallKey: snapshot.nativeCallKey, callPanel: snapshot.callPanel, hangup: snapshot.hangup, ended: snapshot.ended};
+      const samePendingRecipient = this.call?.provider === "zoho_cliq" && snapshot.provider === "zoho_cliq"
+        && this.call.state === "dialing" && this.call.direction === "outgoing" && !snapshot.incoming
+        && /^[0-9]{1,64}$/.test(this.call.participant_id || "") && snapshot.participant_id === this.call.participant_id;
+      const continuousCallUI = snapshot.callPanel && snapshot.hangup && !snapshot.ended
+        && previous?.callPanel && previous.hangup && !previous.ended;
+      const recentNativeIdentity = previous?.nativeCallKey === this.nativeCallKey
+        && Number.isFinite(previous?.nativeAt) && now >= previous.nativeAt && now - previous.nativeAt <= 5000;
+      // A transient missing attribute is not a missing call. Retain the last
+      // native ID only while the exact outgoing participant and continuous call
+      // controls remain visible; the original identity timestamp is not renewed.
+      const retainedNativeIdentity = !snapshot.nativeCallKey && samePendingRecipient
+        && continuousCallUI && recentNativeIdentity && this.absentSince === null;
+      this.lastObservation = {at: now, nativeCallKey: snapshot.nativeCallKey || (retainedNativeIdentity ? this.nativeCallKey : ""),
+        nativeAt: snapshot.nativeCallKey ? now : retainedNativeIdentity ? previous.nativeAt : null,
+        callPanel: snapshot.callPanel, hangup: snapshot.hangup, ended: snapshot.ended};
       let handedOff = false;
       if (this.call && this.nativeCallKey && snapshot.nativeCallKey && this.nativeCallKey !== snapshot.nativeCallKey) {
         // Cliq assigns a provisional call ID, then replaces it with a server
@@ -58,14 +72,10 @@
         // call only when continuous, recent call UI proves that narrow setup
         // handoff. A different recipient, observed gap/end or attended call
         // must still establish a new logical call and new authorization.
-        const samePendingRecipient = this.call.provider === "zoho_cliq" && snapshot.provider === "zoho_cliq"
-          && this.call.state === "dialing" && this.call.direction === "outgoing" && !snapshot.incoming
-          && /^[0-9]{1,64}$/.test(this.call.participant_id || "") && snapshot.participant_id === this.call.participant_id
-          && snapshot.callPanel && snapshot.hangup && !snapshot.ended && this.absentSince === null
-          && previous?.callPanel && previous.hangup && !previous.ended && previous.nativeCallKey === this.nativeCallKey
-          && now >= previous.at && now - previous.at <= 5000 && this.nativeKeyHistory.length < 8
+        const handoff = samePendingRecipient && continuousCallUI && recentNativeIdentity
+          && this.absentSince === null && this.nativeKeyHistory.length < 8
           && !this.nativeKeyHistory.some(entry => entry.key === snapshot.nativeCallKey);
-        if (samePendingRecipient) {
+        if (handoff) {
           this.nativeCallKey = snapshot.nativeCallKey;
           this.nativeKeyHistory.push({key: snapshot.nativeCallKey, at: now, reason: "provisional-handoff"});
           this.lastUpdateReason = "native-handoff";
@@ -79,6 +89,10 @@
         }
       }
       let state = classify(snapshot);
+      // Wait for an actual native identity before granting a pending call's
+      // attendance; remembered identity alone cannot activate the assistant.
+      if (state === "connected" && this.call && this.call.state !== "connected"
+          && this.nativeCallKey && !snapshot.nativeCallKey) state = null;
       if (state === "connected" && this.call?.state !== "connected") {
         this.candidateSince ??= now;
         if (now - this.candidateSince < this.confirmMs) state = null;
@@ -90,7 +104,7 @@
         // native wrapper and its end-call control prove the call still exists,
         // even with a missing timer. Preserve state without granting attendance.
         const sameVisibleCall = snapshot.callPanel && snapshot.hangup && !snapshot.ended
-          && this.nativeCallKey && snapshot.nativeCallKey === this.nativeCallKey;
+          && this.nativeCallKey && (snapshot.nativeCallKey === this.nativeCallKey || retainedNativeIdentity);
         if (sameVisibleCall) { this.absentSince = null; return handedOff ? {...this.call} : null; }
         this.absentSince ??= now;
         if (!snapshot.ended && now - this.absentSince < this.endGraceMs) return null;

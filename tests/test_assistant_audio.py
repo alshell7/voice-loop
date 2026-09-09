@@ -1,4 +1,5 @@
 import queue
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -133,7 +134,7 @@ def test_interruption_discards_staging_and_stale_device_packets(buffered_audio):
     audio, clock = buffered_audio
     audio.write(b"\x01\x00" * 240_000, "old")
     assert len(acknowledge_packet(audio, clock)) == 960
-    assert audio.interrupt() == {"item_id": "old", "audio_end_ms": 20}
+    assert audio.interrupt() == [{"item_id": "old", "audio_end_ms": 20}]
     assert not audio._buffer
     audio.write(b"\x02\x00" * 1000, "new")
     after_interrupt = []
@@ -158,3 +159,104 @@ def test_audio_chunk_larger_than_total_bound_is_rejected(buffered_audio, monkeyp
     with pytest.raises(RuntimeError, match="larger than the bounded"):
         audio.write(b"\x01\x00" * 1001, "test")
     assert audio.stats()["buffered_frames"] == 0
+
+
+def test_normal_reply_never_truncates_a_fully_played_question(buffered_audio):
+    audio, clock = buffered_audio
+    for item in ("greeting-and-question", "second-question", "closing"):
+        audio.write(b"\x01\x00" * 1000, item)
+        while audio.stats()["buffered_frames"]:
+            acknowledge_packet(audio, clock)
+        clock.now += 0.16
+        assert audio.drained()
+        assert audio.interrupt() == []
+    assert audio.stats()["played_frames"] == 3000
+    assert audio.stats()["discarded_frames"] == 0
+
+
+def test_interruption_covers_current_and_queued_items_but_keeps_completed_history(buffered_audio):
+    audio, clock = buffered_audio
+    audio.write(b"\x01\x00" * 480, "heard-question")
+    acknowledge_packet(audio, clock)
+    audio.write(b"\x02\x00" * 2400, "currently-speaking")
+    acknowledge_packet(audio, clock)
+    audio.write(b"\x03\x00" * 960, "queued-followup")
+    assert audio.interrupt() == [
+        {"item_id": "currently-speaking", "audio_end_ms": 20},
+        {"item_id": "queued-followup", "audio_end_ms": 0},
+    ]
+    # Repeated speech-start notifications and late discard acknowledgments
+    # must not truncate those turns again or touch the completed question.
+    assert audio.interrupt() == []
+    while audio.stats()["buffered_frames"]:
+        acknowledge_packet(audio, clock)
+    assert audio.interrupt() == []
+    assert audio.stats()["played_frames"] == 960
+
+
+def test_late_playback_ack_cannot_change_new_epoch_unplayed_accounting(buffered_audio):
+    audio, clock = buffered_audio
+    audio.write(b"\x01\x00" * 480, "old-turn")
+    packet = audio._outgoing.get_nowait()  # A native write already in progress.
+    assert audio.interrupt() == [{"item_id": "old-turn", "audio_end_ms": 0}]
+    audio.write(b"\x02\x00" * 960, "new-turn")
+    _pcm, item, epoch, serial = packet
+    audio._status.put_nowait(("played", (serial, item, 480, epoch)))
+    audio._poll()
+    assert audio.interrupt() == [{"item_id": "new-turn", "audio_end_ms": 0}]
+    assert audio.stats()["played_frames"] == 480
+
+
+def test_final_pending_playback_ack_is_processed_before_deciding_to_truncate(buffered_audio):
+    audio, _ = buffered_audio
+    audio.write(b"\x01\x00" * 480, "heard-question")
+    _pcm, item, epoch, serial = audio._outgoing.get_nowait()
+    audio._status.put_nowait(("played", (serial, item, 480, epoch)))
+    assert audio.interrupt() == []
+
+
+def test_native_playback_pacing_does_not_stretch_packets_with_coarse_event_timer(monkeypatch):
+    clock = SimpleNamespace(now=100.0, stopped=False)
+    channel = queue.Queue()
+    channel.put((b"\x01\x00" * 480, "tone", 0, 1))
+
+    class Status(queue.Queue):
+        def put(self, event):
+            super().put(event)
+            if event[0] == "played":
+                clock.stopped = True
+
+    class Stop:
+        def is_set(self):
+            return clock.stopped
+
+        def wait(self, duration):
+            # Windows kernel event timeouts round a 20-ms wait to ~31 ms.
+            clock.now += max(duration, 0.031)
+
+        def set(self):
+            clock.stopped = True
+
+    class Player:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def play(self, data):
+            assert len(data) == 960
+
+    def sleep(duration):
+        clock.now += duration
+
+    device = SimpleNamespace(id="virtual", channels=2, player=lambda **_: Player())
+    monkeypatch.setitem(sys.modules, "soundcard", SimpleNamespace(all_speakers=lambda: [device]))
+    monkeypatch.setattr(
+        audio_module, "time", SimpleNamespace(monotonic=lambda: clock.now, sleep=sleep)
+    )
+    status = Status()
+    audio_module._playback("virtual", channel, status, Stop(), SimpleNamespace(value=0))
+    assert clock.now - 100 == pytest.approx(0.02)
+    assert status.get()[0] == "ready"
+    assert status.get() == ("played", (1, "tone", 480, 0))

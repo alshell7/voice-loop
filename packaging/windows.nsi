@@ -3,7 +3,7 @@ Unicode True
 !include "x64.nsh"
 !include "LogicLib.nsh"
 !ifndef APP_VERSION
-  !define APP_VERSION "0.5.1"
+  !define APP_VERSION "0.5.2"
 !endif
 Name "Voice Loop"
 OutFile "..\dist\VoiceLoop-${APP_VERSION}-windows-x64-setup.exe"

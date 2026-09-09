@@ -1,13 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.5.2 (prerelease)
 
 - Buffer faster-than-realtime speech without treating a full playback queue as
   a broken call. Bound memory, detect stalled output, and preserve interruption.
-- Wait for closing speech to play; let an interjection resume the conversation
-  before hangup, while retaining the configured call duration limit.
+- Commit finish_call before playing one brief goodbye. Late interruptions and
+  cancelled responses cannot restart the conversation or extend the closing
+  deadline; ordinary conversation still supports interruptions.
 - Recognize Cliq's explicit Connected status and a running call timer despite
   a retained outgoing layout. Visible Ringing/Calling text still blocks audio.
+- Preserve an outgoing call through a brief missing native ID and server ID
+  handoff when the same recipient and call controls remain visible. Missing
+  identity never grants attendance, and retention has a fixed timeout.
+- Keep fully played questions in Realtime conversation context when a recipient
+  replies. Truncate only unfinished speech, including multiple queued items.
+- Correct Windows playback pacing and send captured audio independently in
+  bounded batches, so slow uploads do not delay call events or interruptions.
+- Introduce the assistant once per call and resume unanswered objective points
+  after an interruption, instead of restarting the greeting.
+- Retain a small call-state trace without contact, company, or native call IDs
+  so a browser hangup and a lost identity can be distinguished in local history.
 - Report calls that end before assistant activation as failed, and distinguish
   connection timeouts, audio preparation failures, and lost browser updates.
 
