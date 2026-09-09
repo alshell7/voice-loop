@@ -51,6 +51,7 @@ class FakeConnection:
         self.uploads = []
         self.truncations = []
         self.items = []
+        self.cancellations = 0
         self.closed = False
         self.session = SimpleNamespace(update=self.update)
         self.response = SimpleNamespace(create=self.create, cancel=self.cancel)
@@ -73,7 +74,7 @@ class FakeConnection:
             self.events.extend(events)
 
     async def cancel(self):
-        pass
+        self.cancellations += 1
 
     async def append(self, **kwargs):
         self.uploads.append(kwargs)
@@ -433,3 +434,81 @@ def test_no_realtime_threads_left_after_cancel():
     worker.stop()
     assert worker.join(2)
     assert not any(t.name == "VoiceLoop-Realtime" for t in threading.enumerate())
+
+
+def test_excessive_buffer_cancels_generation_without_blocking_vad_or_ending_call():
+    class FullAudio(FakeAudio):
+        def write(self, pcm, item_id):
+            if len(self.writes) == 1 and item_id == "assistant-1":
+                return False
+            return super().write(pcm, item_id)
+
+    audio = FullAudio(drain=False)
+    audio.interruption = {"item_id": "assistant-1", "audio_end_ms": 20}
+    connection = FakeConnection(
+        [
+            [
+                audio_event(),
+                audio_event(),
+                audio_event(),  # Already in flight when cancellation is sent.
+                {"type": "input_audio_buffer.speech_started"},
+                transcript("A long generated turn"),
+                done(finish=True),  # A capped response cannot finish the call.
+                audio_event("assistant-2"),
+                transcript("I heard you.", item="assistant-2"),
+            ]
+        ]
+    )
+    worker, _, _, _ = worker_for(connection, audio)
+    try:
+        worker.activate()
+        await_condition(lambda: "assistant-2" in worker._transcripts)
+        assert worker.is_running and worker.result is None
+        assert connection.cancellations == 1
+        assert len(connection.truncations) == 2
+        assert connection.truncations[-1]["audio_end_ms"] == 20
+        assert [item for _, item in audio.writes] == ["assistant-1", "assistant-2"]
+        assert worker._transcripts["assistant-1"]["interrupted"] is True
+        assert len(connection.requests) == 1
+        assert not connection.items
+        assert worker._warnings
+    finally:
+        worker.stop()
+        assert worker.join(2)
+    assert worker.result["reason"] == "cancelled"
+
+
+def test_recipient_can_interrupt_queued_goodbye_and_resume_after_finish_call():
+    connection = FakeConnection(
+        [[audio_event(), transcript("Thank you. Goodbye."), done(finish=True)]]
+    )
+    audio = FakeAudio(drain=False)
+    audio.interruption = {"item_id": "assistant-1", "audio_end_ms": 20}
+    worker, _, _, _ = worker_for(connection, audio)
+    try:
+        worker.activate()
+        await_condition(lambda: bool(connection.items))
+        uploaded = len(connection.uploads)
+        audio.incoming.append(b"\x01\x00" * 480)
+        await_condition(lambda: len(connection.uploads) > uploaded)
+        connection.events.extend(
+            [
+                {"type": "input_audio_buffer.speech_started", "item_id": "user-1"},
+                transcript("Wait, which day?", role="user", item="user-1"),
+                audio_event("new-automatic-response"),
+                transcript("Tomorrow. Thank you, goodbye.", item="new-automatic-response"),
+                done(finish=True),
+            ]
+        )
+        await_condition(lambda: bool(connection.truncations))
+        audio.drain_allowed = True
+        assert worker.join(2)
+        assert worker.result["reason"] == "completed"
+        assert len(audio.writes) == 2
+        assert len(connection.requests) == 1
+        assert any(t["text"] == "Wait, which day?" for t in worker.result["transcript"])
+        assert worker.result["transcript"][-1]["text"] == "Tomorrow. Thank you, goodbye."
+        assert worker.result["transcript"][0]["interrupted"] is True
+    finally:
+        worker.stop()
+        assert worker.join(2)

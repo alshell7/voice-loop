@@ -78,12 +78,12 @@
       || (nativePanels.length === 1 ? nativePanels[0] : null);
     const panel = nativePanel || (nativePanels.length ? null : panels.find(usable));
     if (!panel) return {provider, url: location.href, callPanel: false};
-    const text = all(panel, "[statuscontent], [data-call-status], [class*='call-status' i]").map(el => D.clean(el.innerText)).join(" ");
+    const statuses = all(panel, "[statuscontent], [data-call-status], [class*='call-status' i]").map(el => D.clean(el.innerText));
+    const text = statuses.join(" ");
     const panelControls = all(panel, "button, [role='button'], [title], [aria-label], [data-tooltip], [mediacallbuttons]");
     const panelHangup = panelControls.some(el => el.getAttribute("purpose") === "endCall" || /(?:end (?:the )?call|hang ?up|disconnect call)/i.test(label(el)));
     const incoming = all(panel, ".AV-call-incoming").length > 0 || /incoming (?:audio |video |voice )?call|is calling you/i.test(text)
       || panelControls.some(el => /^(?:accept|answer)(?: (?:audio |video )?call)?$/i.test(label(el)));
-    const dialing = (all(panel, ".AV-call-outgoing").length > 0 || /\b(?:calling|ringing|dialing|waiting for (?:a |the )?(?:response|answer))\b/i.test(text)) && !incoming;
     const timerNodes = all(panel, "[class*='timer' i], [class*='duration' i], [id*='timer' i], [data-call-duration], time");
     let elapsed = Math.max(-1, ...timerNodes.map(el => D.timerSeconds(el.textContent) ?? -1));
     // Some Cliq builds render a bare span, so accept a time only inside this call
@@ -91,8 +91,14 @@
     if (elapsed < 0) elapsed = Math.max(-1, ...all(panel, "span").filter(el => !el.children.length).map(el => D.timerSeconds(el.textContent) ?? -1));
     const contact = firstText(panel, "[other-username], [data-caller-name], [data-contact-name]")
       || firstText(panel, "[class*='callername' i], [class*='caller-name' i], [class*='callee' i], [class*='call-user' i], [class*='username' i]:not([current-username]), [class*='user-name' i]:not([current-username]), [class*='contact-name' i], [class*='participant-name' i]");
-    const explicitConnected = /^(?:connected|ongoing|in-progress)$/.test(panel.getAttribute("data-call-state") || "")
-      || /\bcall connected\b/i.test(text);
+    const explicitConnected = /^(?:connected|ongoing|in-progress)$/i.test(D.clean(panel.getAttribute("data-call-state")))
+      || statuses.some(status => /^(?:call )?connected[.!]?$/i.test(status));
+    // A retained outgoing layout class does not override a visible connected
+    // status or running call timer. Actual invitation text still takes priority;
+    // an SFU/network connection or elapsed time while Ringing is not attendance.
+    const dialingText = /\b(?:calling|ringing|dialing|waiting for (?:a |the )?(?:response|answer))\b/i.test(text);
+    const outgoingLayout = all(panel, ".AV-call-outgoing").length > 0;
+    const dialing = (dialingText || outgoingLayout && !explicitConnected && elapsed < 1) && !incoming;
     const wrapper = panel.matches("[mediacallwrapper]") ? panel : all(panel, "[mediacallwrapper]")[0];
     // Caller identity comes from the call wrapper, never whichever chat happens
     // to be open behind an incoming invitation. Unknown identity stays blank.

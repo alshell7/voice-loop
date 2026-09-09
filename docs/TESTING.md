@@ -5,6 +5,26 @@ PySide6 Essentials 6.11.2, keyring 25.7.0. The current development build is 0.5.
 earlier released checks are labeled below. Live assistant-call verification
 remains separate from automated and packaging results.
 
+## Pending call reliability fixes
+
+- Full Python run: **549 passed in 87.21 seconds**. After the final audio
+  changes, **38 focused audio/Realtime tests passed**. Extension suite:
+  **135 tests passed**. Ruff lint and formatting checks pass.
+- Reproduced a reported 276,480-frame generated speech burst using a simulated
+  audio transport. It now plays without loss. Tests cover bounded staging,
+  playback backpressure, actual output stalls, stale-packet discard, and user
+  interruptions while closing speech is still playing.
+- Detector fixtures cover exact Connected status, stale outgoing layout with
+  a running timer, and explicit ringing/server-only states that must not start
+  assistant audio. Coordinator tests reject false success before activation
+  and preserve the original failure when another shutdown condition occurs.
+- One authorized Windows Cliq call was attempted after restarting the source
+  app and reloading the extension. Observed Calling and Ringing, then a browser
+  ended event; no confirmed connection, assistant activation, audio upload, or
+  assistant-requested hangup occurred. The objective was not delivered. This
+  attempt does not verify the contact-specific connected-call behavior, live
+  playback, or assistant-initiated hangup. No automatic redial was performed.
+
 ## 0.5.1 name scheduling and busy fallback
 
 - Full Python suite: **546 passed in 79.68 seconds**. Extension suite:

@@ -194,6 +194,34 @@ test("observed Cliq provisional ID handoff then split-span timer retains command
   assert.equal(b.events.some(event => event.state === "ended"), false);
 });
 
+test("an exact visible Connected status activates a retained outgoing layout without a timer", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  const callId = b.events.at(-1).call_id;
+  b.document.querySelector("[statuscontent]").textContent = "Connected";
+  await b.advance(1000); await b.advance(1000);
+  assert.deepEqual(b.events.map(event => event.state), ["dialing", "connected"]);
+  assert.equal(b.events.at(-1).call_id, callId);
+  assert.equal(b.events.at(-1).direction, "outgoing");
+});
+
+test("a visible running call timer overrides only a stale outgoing layout marker", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  b.document.querySelector("[statuscontent]").textContent = "";
+  b.document.querySelector("#mediacallsessionsubtimer").textContent = "00:03";
+  await b.advance(1000); await b.advance(1000);
+  assert.deepEqual(b.events.map(event => event.state), ["dialing", "connected"]);
+});
+
+for (const text of ["Ringing...", "Calling...", "Waiting for the answer", "SFU connected", "Not connected", "Call connected to the server"]) {
+  test(`unattended status never establishes a connection: ${text}`, async t => {
+    const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+    b.document.querySelector("[statuscontent]").textContent = text;
+    if (/Ringing|Calling|Waiting/.test(text)) b.document.querySelector("#mediacallsessionsubtimer").textContent = "00:03";
+    await b.advance(1000); await b.advance(1000);
+    assert.equal(b.events.some(event => event.state === "connected"), false);
+  });
+}
+
 test("a visible native call wrapper takes priority over unrelated generic call status panels", async t => {
   const b = await browserFixture("cliq-outgoing"); t.after(b.close);
   const panel = b.document.createElement("div"); panel.setAttribute("data-call-state", "idle");

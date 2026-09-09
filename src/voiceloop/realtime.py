@@ -358,6 +358,9 @@ class RealtimeWorker:
         finish_reason = "completed"
         response_active = True
         generated = 0
+        accepted_frames = {}
+        limited_response = False
+        closing_interrupted = False
         pending_transcriptions = set()
         finished_at = None
         try:
@@ -388,7 +391,9 @@ class RealtimeWorker:
                     await self._goodbye(connection)
                     response_active = True
                 pcm = self.audio.read()
-                if pcm and not ending:
+                # Keep listening while a fast-generated goodbye is still
+                # playing. Finishing generation does not mean it was heard.
+                if pcm:
                     await asyncio.wait_for(
                         connection.input_audio_buffer.append(
                             audio=base64.b64encode(pcm).decode("ascii")
@@ -422,10 +427,40 @@ class RealtimeWorker:
                     elif kind == "response.created":
                         response_active = True
                     elif kind == "response.output_audio.delta":
-                        if event["item_id"] not in self._interrupted:
+                        if (
+                            not limited_response
+                            and not closing_interrupted
+                            and event["item_id"] not in self._interrupted
+                        ):
                             data = base64.b64decode(event["delta"], validate=True)
-                            self.audio.write(data, event["item_id"])
-                            generated += len(data)
+                            item_id = event["item_id"]
+                            if self.audio.write(data, item_id) is False:
+                                # The ordinary faster-than-speech burst fits
+                                # the bounded staging buffer. An exceptionally
+                                # long response must stop generating, rather
+                                # than blocking the event stream (and VAD) or
+                                # ending a healthy call. Preserve queued speech.
+                                limited_response = True
+                                self._interrupted.add(item_id)
+                                if item_id in self._transcripts:
+                                    self._transcripts[item_id]["interrupted"] = True
+                                self._warnings.append(
+                                    "An unusually long response reached the playback buffer limit; "
+                                    "the call stayed active."
+                                )
+                                await connection.response.cancel()
+                                await connection.conversation.item.truncate(
+                                    item_id=item_id,
+                                    content_index=0,
+                                    audio_end_ms=accepted_frames.get(item_id, 0)
+                                    * 1000
+                                    // REALTIME_RATE,
+                                )
+                            else:
+                                generated += len(data)
+                                accepted_frames[item_id] = (
+                                    accepted_frames.get(item_id, 0) + len(data) // 2
+                                )
                     elif kind == "response.output_audio_transcript.done":
                         self._transcript(event["item_id"], "assistant", event.get("transcript", ""))
                     elif kind == "conversation.item.input_audio_transcription.completed":
@@ -435,8 +470,21 @@ class RealtimeWorker:
                         pending_transcriptions.discard(event["item_id"])
                         self._warnings.append("A spoken turn could not be transcribed.")
                         self._emit("status", message="A spoken turn could not be transcribed.")
-                    elif kind == "input_audio_buffer.speech_started" and not ending:
+                    elif kind == "input_audio_buffer.speech_started":
                         await self._interrupt_audio(connection)
+                        if ending:
+                            # A finish_call can arrive before its spoken closing
+                            # has played. Let an interjection resume the normal
+                            # conversation instead of hanging up over a question.
+                            if event.get("item_id"):
+                                pending_transcriptions.add(event["item_id"])
+                            if response_active:
+                                await connection.response.cancel()
+                            if finish_reason == "time_limit":
+                                closing_interrupted = finished = True
+                            else:
+                                ending = finished = False
+                                finished_at = None
                     elif kind == "response.done":
                         response_active = False
                         response = _object(event["response"])
@@ -444,6 +492,11 @@ class RealtimeWorker:
                             self._usage.append(_object(response["usage"]))
                         if response.get("status") == "failed":
                             raise RuntimeError("OpenAI could not complete the voice response.")
+                        if limited_response:
+                            limited_response = False
+                            continue
+                        if closing_interrupted or response.get("status") == "cancelled":
+                            continue
                         calls = [
                             _object(item)
                             for item in response.get("output", [])

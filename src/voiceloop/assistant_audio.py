@@ -8,6 +8,7 @@ import multiprocessing as mp
 import queue
 import sys
 import time
+from collections import deque
 
 import numpy as np
 
@@ -17,6 +18,10 @@ from voiceloop.devices import Device, is_virtual
 DEVICE_RATE = 48_000
 REALTIME_RATE = 24_000
 FRAMES = 960
+PLAYBACK_FRAMES = REALTIME_RATE // 50
+PLAYBACK_QUEUE_PACKETS = 8
+MAX_BUFFERED_FRAMES = REALTIME_RATE * 60
+PLAYBACK_STALL_SECONDS = 5
 
 
 class Downsample48k:
@@ -138,14 +143,19 @@ class CableAudio:
         self.monitor = monitor
         self._ctx = mp.get_context("spawn")
         self._incoming = self._ctx.Queue(maxsize=64)
-        self._outgoing = self._ctx.Queue(maxsize=256)
+        # Keep the device queue short for interruption; generated responses may
+        # arrive much faster than speech can play, so stage them separately.
+        self._outgoing = self._ctx.Queue(maxsize=PLAYBACK_QUEUE_PACKETS)
         self._status = self._ctx.Queue(maxsize=512)
         self._monitor = self._ctx.Queue(maxsize=16) if monitor else None
         self._stop = self._ctx.Event()
         self._go = self._ctx.Event()
         self._generation = self._ctx.Value("i", 0)
         self._processes = []
-        self._pending = set()
+        self._pending = {}
+        self._buffer = deque()
+        self._buffered_frames = 0
+        self._last_progress_at = 0.0
         self._serial = 0
         self._last_item = ""
         self._played = {}
@@ -160,6 +170,9 @@ class CableAudio:
             "played_frames": 0,
             "input_peak": 0.0,
             "sample_rate": REALTIME_RATE,
+            "buffer_high_water_frames": 0,
+            "playback_backpressure_count": 0,
+            "discarded_frames": 0,
         }
 
     def start(self, cancelled=None):
@@ -244,15 +257,34 @@ class CableAudio:
             if kind == "error":
                 raise RuntimeError(value)
             if kind == "discarded":
-                self._pending.discard(value)
+                self._stats["discarded_frames"] += self._pending.pop(value, 0)
+                self._last_progress_at = time.monotonic()
             elif kind == "played":
                 serial, item, count, _epoch = value
-                self._pending.discard(serial)
+                self._pending.pop(serial, None)
                 self._played[item] = self._played.get(item, 0) + count
                 self._stats["played_frames"] += count
                 self._last_played_at = time.monotonic()
+                self._last_progress_at = self._last_played_at
         if not self._closed:
             self._check_alive()
+            self._pump()
+            if self._pending and time.monotonic() - self._last_progress_at > PLAYBACK_STALL_SECONDS:
+                raise RuntimeError("Assistant audio output stopped making playback progress.")
+
+    def _pump(self):
+        while self._buffer:
+            packet = self._buffer[0]
+            try:
+                self._outgoing.put_nowait(packet)
+            except queue.Full:
+                break
+            self._buffer.popleft()
+            count = len(packet[0]) // 2
+            self._buffered_frames -= count
+            if not self._pending:
+                self._last_progress_at = time.monotonic()
+            self._pending[packet[3]] = count
 
     def read(self):
         self._poll()
@@ -269,28 +301,46 @@ class CableAudio:
         return pcm
 
     def write(self, pcm, item_id):
+        """Accept a complete delta, or return False to apply bounded backpressure.
+
+        Full native queues are normal during faster-than-realtime generation.
+        The caller can retry an unaccepted delta or cancel an excessive response
+        while continuing input/control processing. Acceptance is atomic.
+        """
         if len(pcm) % 2:
             raise ValueError("Realtime audio must contain complete PCM16 samples.")
         self._poll()
+        count = len(pcm) // 2
+        if count > MAX_BUFFERED_FRAMES:
+            raise RuntimeError(
+                "OpenAI returned an audio chunk larger than the bounded response buffer."
+            )
+        queued = self._buffered_frames + sum(self._pending.values())
+        if queued + count > MAX_BUFFERED_FRAMES:
+            self._stats["playback_backpressure_count"] += 1
+            return False
         self._last_item = item_id
-        for offset in range(0, len(pcm), FRAMES * 2):
-            packet = pcm[offset : offset + FRAMES * 2]
+        epoch = self._generation.value
+        for offset in range(0, len(pcm), PLAYBACK_FRAMES * 2):
+            packet = pcm[offset : offset + PLAYBACK_FRAMES * 2]
             self._serial += 1
-            try:
-                self._outgoing.put_nowait((packet, item_id, self._generation.value, self._serial))
-            except queue.Full as exc:
-                raise RuntimeError(
-                    "Assistant playback fell behind; stopped to bound latency."
-                ) from exc
-            self._pending.add(self._serial)
-            count = len(packet) // 2
-            self._generated[item_id] = self._generated.get(item_id, 0) + count
-            self._stats["generated_frames"] += count
+            self._buffer.append((packet, item_id, epoch, self._serial))
+        self._buffered_frames += count
+        self._generated[item_id] = self._generated.get(item_id, 0) + count
+        self._stats["generated_frames"] += count
+        self._stats["buffer_high_water_frames"] = max(
+            self._stats["buffer_high_water_frames"], queued + count
+        )
+        self._pump()
+        return True
 
     def interrupt(self):
         self._poll()
         with self._generation.get_lock():
             self._generation.value += 1
+        self._stats["discarded_frames"] += self._buffered_frames
+        self._buffer.clear()
+        self._buffered_frames = 0
         item = self._last_item
         self._last_item = ""
         if not item:
@@ -300,10 +350,18 @@ class CableAudio:
     def drained(self):
         self._poll()
         # Account for the final host mixer/device buffer before hanging up.
-        return not self._pending and time.monotonic() - self._last_played_at >= 0.15
+        return (
+            not self._buffer
+            and not self._pending
+            and time.monotonic() - self._last_played_at >= 0.15
+        )
 
     def stats(self):
-        return dict(self._stats)
+        return {
+            **self._stats,
+            "buffered_frames": self._buffered_frames + sum(self._pending.values()),
+            "buffer_limit_frames": MAX_BUFFERED_FRAMES,
+        }
 
     def close(self):
         if self._closed:

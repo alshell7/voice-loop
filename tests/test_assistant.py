@@ -333,6 +333,41 @@ def test_browser_bridge_stopping_ends_active_assistant_audio(service):
     assert worker.stopped
 
 
+def test_call_ending_before_connection_is_not_completed(service):
+    job, worker = waiting(service)
+    service.handle_event(event(service, "ended", command_id=job["command_id"]))
+    worker.result = {"reason": "cancelled"}
+    worker.events.append({"type": "completed"})
+    service.tick()
+    stored = service.store.get(job["id"])
+    assert stored["state"] == "failed"
+    assert "before the assistant could connect" in stored["error"]
+    assert not worker.activated
+
+
+def test_manual_cancel_before_connection_remains_cancelled(service):
+    job, worker = waiting(service)
+    service.cancel(job["id"])
+    worker.result = {"reason": "cancelled"}
+    worker.events.append({"type": "completed"})
+    service.tick()
+    assert service.store.get(job["id"])["state"] == "cancelled"
+
+
+def test_connection_timeout_is_specific_and_preserves_original_failure(service):
+    job, worker = waiting(service)
+    service.deadline = 0
+    service.tick()
+    assert worker.stopped
+    stored = service.store.get(job["id"])
+    assert stored["error"] == "Call connection was not confirmed within 60 seconds."
+    stored["error"] = "Original playback failure."
+    service.store.put(stored)
+    service.test_bridge.is_running = False
+    service.tick()
+    assert service.store.get(job["id"])["error"] == "Original playback failure."
+
+
 def test_cancel_succeeds_while_browser_is_offline(service):
     job, worker = waiting(service)
     service.test_bridge.is_running = False

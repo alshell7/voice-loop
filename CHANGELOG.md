@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Buffer faster-than-realtime speech without treating a full playback queue as
+  a broken call. Bound memory, detect stalled output, and preserve interruption.
+- Wait for closing speech to play; let an interjection resume the conversation
+  before hangup, while retaining the configured call duration limit.
+- Recognize Cliq's explicit Connected status and a running call timer despite
+  a retained outgoing layout. Visible Ringing/Calling text still blocks audio.
+- Report calls that end before assistant activation as failed, and distinguish
+  connection timeouts, audio preparation failures, and lost browser updates.
+
 ## 0.5.1 (prerelease)
 
 - Resolve MCP recipients by a unique saved name or word prefix, with clear

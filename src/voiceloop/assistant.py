@@ -641,7 +641,19 @@ class AssistantService:
                         or not self.config.enabled
                         or not getattr(bridge, "is_running", False)
                     ):
-                        job["error"] = "Call timed out or browser disconnected."
+                        if not job.get("error"):
+                            if not self.config.enabled:
+                                job["error"] = "AI Assistant was disabled during the call."
+                            elif not getattr(bridge, "is_running", False):
+                                job["error"] = "Browser bridge stopped during the call."
+                            elif lost:
+                                job["error"] = "Browser call updates stopped for 45 seconds."
+                            elif job["state"] == "preparing":
+                                job["error"] = "Assistant audio preparation timed out."
+                            else:
+                                job["error"] = (
+                                    "Call connection was not confirmed within 60 seconds."
+                                )
                         self._hangup(job)
                         self.store.put(job)
                         self.worker.stop()
@@ -675,6 +687,8 @@ class AssistantService:
         job["result"] = result
         job["error"] = job["error"] or result.get("error", "")
         if job["state"] not in TERMINAL:
+            if not job.get("started_at") and not job["error"]:
+                job["error"] = "Call ended before the assistant could connect."
             job["state"] = "failed" if job["error"] else "completed"
         job["ended_at"] = self.now().isoformat()
         self._hangup(job)
