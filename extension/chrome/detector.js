@@ -15,7 +15,7 @@
     return String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, limit);
   }
   function timerSeconds(value) {
-    const match = clean(value).match(/^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})$/);
+    const match = clean(value).replace(/\s*:\s*/g, ":").match(/^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})$/);
     if (!match || +match[2] > 59 || +match[3] > 59) return null;
     return +(match[1] || 0) * 3600 + +match[2] * 60 + +match[3];
   }
@@ -41,12 +41,42 @@
       this.uuid = uuid; this.confirmMs = confirmMs; this.endGraceMs = endGraceMs;
       this.call = null; this.candidateSince = null; this.absentSince = null;
       this.nativeCallKey = null;
+      this.lastEndReason = "";
+      this.lastUpdateReason = "";
+      this.nativeKeyHistory = [];
+      this.lastObservation = null;
     }
     observe(snapshot, now = Date.now()) {
+      this.lastEndReason = "";
+      this.lastUpdateReason = "";
+      const previous = this.lastObservation;
+      this.lastObservation = {at: now, nativeCallKey: snapshot.nativeCallKey, callPanel: snapshot.callPanel, hangup: snapshot.hangup, ended: snapshot.ended};
+      let handedOff = false;
       if (this.call && this.nativeCallKey && snapshot.nativeCallKey && this.nativeCallKey !== snapshot.nativeCallKey) {
-        const ended = {...this.call, state: "ended"};
-        this.call = null; this.candidateSince = null; this.absentSince = null; this.nativeCallKey = null;
-        return ended;
+        // Cliq assigns a provisional call ID, then replaces it with a server
+        // ID while the same recipient is still ringing. This is one logical
+        // call only when continuous, recent call UI proves that narrow setup
+        // handoff. A different recipient, observed gap/end or attended call
+        // must still establish a new logical call and new authorization.
+        const samePendingRecipient = this.call.provider === "zoho_cliq" && snapshot.provider === "zoho_cliq"
+          && this.call.state === "dialing" && this.call.direction === "outgoing" && !snapshot.incoming
+          && /^[0-9]{1,64}$/.test(this.call.participant_id || "") && snapshot.participant_id === this.call.participant_id
+          && snapshot.callPanel && snapshot.hangup && !snapshot.ended && this.absentSince === null
+          && previous?.callPanel && previous.hangup && !previous.ended && previous.nativeCallKey === this.nativeCallKey
+          && now >= previous.at && now - previous.at <= 5000 && this.nativeKeyHistory.length < 8
+          && !this.nativeKeyHistory.some(entry => entry.key === snapshot.nativeCallKey);
+        if (samePendingRecipient) {
+          this.nativeCallKey = snapshot.nativeCallKey;
+          this.nativeKeyHistory.push({key: snapshot.nativeCallKey, at: now, reason: "provisional-handoff"});
+          this.lastUpdateReason = "native-handoff";
+          this.candidateSince = null;
+          handedOff = true;
+        } else {
+          this.lastEndReason = "native-replaced";
+          const ended = {...this.call, state: "ended"};
+          this.call = null; this.candidateSince = null; this.absentSince = null; this.nativeCallKey = null;
+          return ended;
+        }
       }
       let state = classify(snapshot);
       if (state === "connected" && this.call?.state !== "connected") {
@@ -55,16 +85,16 @@
       } else if (state !== "connected") this.candidateSince = null;
       if (!state) {
         if (!this.call) return null;
-        // Accepting an invitation can hide its answer/ringing controls before
-        // the connection finishes. A still-visible, identical call wrapper with
-        // an end-call control and a zero timer is a pending handshake, not an
-        // absent call. Retain invitation metadata without granting attendance.
-        const pendingHandshake = (this.call.state === "ringing" || this.call.state === "dialing")
-          && snapshot.callPanel && snapshot.hangup && snapshot.elapsed === 0 && !snapshot.ended
+        // Cliq removes invitation text before rendering its connected timer,
+        // and can hide the timer during an attended call's rerender. The same
+        // native wrapper and its end-call control prove the call still exists,
+        // even with a missing timer. Preserve state without granting attendance.
+        const sameVisibleCall = snapshot.callPanel && snapshot.hangup && !snapshot.ended
           && this.nativeCallKey && snapshot.nativeCallKey === this.nativeCallKey;
-        if (pendingHandshake) { this.absentSince = null; return null; }
+        if (sameVisibleCall) { this.absentSince = null; return handedOff ? {...this.call} : null; }
         this.absentSince ??= now;
         if (!snapshot.ended && now - this.absentSince < this.endGraceMs) return null;
+        this.lastEndReason = snapshot.ended ? "ui-ended" : "ui-absent";
         const ended = {...this.call, state: "ended"};
         this.call = null; this.absentSince = null; this.nativeCallKey = null;
         return ended;
@@ -74,6 +104,10 @@
       // invitation. Explicit end or loss of call UI closes the call first.
       if (this.call?.state === "connected" && state !== "connected") return null;
       const direction = state === "ringing" ? "incoming" : state === "dialing" ? "outgoing" : this.call?.direction || "unknown";
+      if (!this.call) this.nativeKeyHistory = [];
+      if (snapshot.nativeCallKey && !this.nativeKeyHistory.some(entry => entry.key === snapshot.nativeCallKey)) {
+        this.nativeKeyHistory.push({key: snapshot.nativeCallKey, at: now, reason: "observed"});
+      }
       const next = {
         call_id: this.call?.call_id || this.uuid(), provider: snapshot.provider,
         state, direction, contact: {name: clean(snapshot.contact) || this.call?.contact.name || ""},
@@ -81,10 +115,15 @@
         // Never include query parameters, fragments, tokens, or chat text.
         url: new URL(snapshot.url).origin + new URL(snapshot.url).pathname,
       };
+      if (snapshot.chat_id && snapshot.chat_url || this.call?.chat_id) {
+        next.chat_id = snapshot.chat_id || this.call.chat_id;
+        next.chat_url = snapshot.chat_url || this.call.chat_url;
+      }
+      if (snapshot.participant_id || this.call?.participant_id) next.participant_id = snapshot.participant_id || this.call.participant_id;
       const changed = !this.call || JSON.stringify(next) !== JSON.stringify(this.call);
       this.call = next;
       this.nativeCallKey = snapshot.nativeCallKey || this.nativeCallKey;
-      return changed ? {...next} : null;
+      return changed || handedOff ? {...next} : null;
     }
   }
   const api = {providerFor, clean, timerSeconds, controlLabel, classify, CallTracker};

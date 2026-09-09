@@ -41,6 +41,11 @@ class CallEvent:
     title: str
     url: str
     timestamp: float
+    profile_id: str = ""
+    chat_id: str = ""
+    chat_url: str = ""
+    command_id: str = ""
+    participant_id: str = ""
 
     @property
     def tool_name(self) -> str:
@@ -106,8 +111,45 @@ class CallEvent:
         age = (time.time() if now is None else now) - timestamp
         if not math.isfinite(timestamp) or age > MAX_EVENT_AGE or age < -30:
             raise ValueError("Event timestamp is stale or in the future.")
+        profile_id = _text(payload.get("profile_id", ""), "profile ID", 128)
+        command_id = _text(payload.get("command_id", ""), "command ID", 128)
+        if any(value and not _ID.fullmatch(value) for value in (profile_id, command_id)):
+            raise ValueError("Invalid browser correlation ID.")
+        chat_id = _text(payload.get("chat_id", ""), "chat ID", 64)
+        participant_id = _text(payload.get("participant_id", ""), "participant ID", 64)
+        if participant_id and (
+            provider != "zoho_cliq" or not re.fullmatch(r"[0-9]{1,64}", participant_id)
+        ):
+            raise ValueError("Invalid Cliq participant ID.")
+        chat_url = _text(payload.get("chat_url", ""), "chat URL", 2048)
+        if chat_id or chat_url:
+            parsed_chat = urlsplit(chat_url)
+            if (
+                provider != "zoho_cliq"
+                or not re.fullmatch(r"[0-9]{1,64}", chat_id)
+                or parsed_chat.scheme != "https"
+                or parsed_chat.netloc != urlsplit(url).netloc
+                or not re.fullmatch(rf"/company/[0-9]+/chats/{chat_id}/?", parsed_chat.path)
+                or parsed_chat.query
+                or parsed_chat.fragment
+            ):
+                raise ValueError("Invalid call chat identity.")
         return cls(
-            event_id, call_id, provider, state, direction, name, email, title, url, timestamp
+            event_id,
+            call_id,
+            provider,
+            state,
+            direction,
+            name,
+            email,
+            title,
+            url,
+            timestamp,
+            profile_id,
+            chat_id,
+            chat_url,
+            command_id,
+            participant_id,
         )
 
 

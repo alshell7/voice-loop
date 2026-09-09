@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><title>Cliq — Test Workspace</title></head><body>
+<!-- Sanitized reconstruction of the observed switch from AV-call-initial to
+     AV-call-audio-only. A missing status/timer is a connecting state, not proof
+     of attendance or termination. All IDs and contact values are synthetic. -->
+<div id="mediacall_container">
+  <div mediacallwrapper callid="synthetic-old-call" class="AV-call-wrapper" style="display:none">
+    <span other-username>Previous Contact</span><span id="old-timer">09:42</span>
+  </div>
+  <div class="AV-call-wrapper AV-call-audio-only" mediacallwrapper callid="synthetic-call-one" calltype="audio" callerid="111222" calleeid="333444">
+    <div class="AV-call-main">
+      <span other-username>Test Contact</span>
+      <div videocontainer userid="111222"><span current-username>You</span></div>
+      <div mediacallbuttons purpose="endCall" av-tooltip-title="End call">phone</div>
+    </div>
+    <div initialcontainer style="display:none">
+      <div class="AV-call-status AV-call-outgoing"><span statuscontent>Calling...</span></div>
+    </div>
+  </div>
+</div>
+</body></html>

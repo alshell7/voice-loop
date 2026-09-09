@@ -48,6 +48,11 @@ jobs:
       - name: Verify packaged Windows capture protection
         if: runner.os == 'Windows'
         run: powershell -NoProfile -File scripts/smoke_packaged.ps1 -Check check-capture
+      - name: Verify packaged Windows MCP and Realtime dependencies
+        if: runner.os == 'Windows'
+        run: |
+          dist/VoiceLoop/VoiceLoopMCP.exe --check-runtime
+          python scripts/smoke_assistant_mcp.py --executable dist/VoiceLoop/VoiceLoopMCP.exe
       - name: Build macOS installer
         if: runner.os == 'macOS'
         run: python scripts/build_macos.py
@@ -57,6 +62,11 @@ jobs:
       - name: Verify packaged macOS legacy capture setting
         if: runner.os == 'macOS'
         run: env QT_QPA_PLATFORM=cocoa dist/VoiceLoop.app/Contents/MacOS/VoiceLoop check-capture --output build/packaged-capture.json
+      - name: Verify packaged macOS MCP and Realtime dependencies
+        if: runner.os == 'macOS'
+        run: |
+          dist/VoiceLoop.app/Contents/MacOS/VoiceLoopMCP --check-runtime
+          python scripts/smoke_assistant_mcp.py --executable dist/VoiceLoop.app/Contents/MacOS/VoiceLoopMCP
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: installers-${{ matrix.target }}

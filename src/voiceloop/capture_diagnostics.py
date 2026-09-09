@@ -35,6 +35,7 @@ def check_capture(output, *, pixels=False):
                 settings=Settings(recording_directory=temporary),
                 device_provider=lambda: Devices([], []),
                 contacts=Contacts(Path(temporary) / "contacts.json"),
+                assistant_directory=Path(temporary) / "assistant",
             )
             manager = app.capture_protection
             background = QWidget(None, Qt.WindowType.FramelessWindowHint)

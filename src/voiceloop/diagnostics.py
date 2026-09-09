@@ -28,11 +28,12 @@ def check_ui(output):
             settings=Settings(recording_directory=str(root / "recordings")),
             device_provider=lambda: Devices([], []),
             contacts=Contacts(root / "contacts.json"),
+            assistant_directory=root / "assistant",
         )
         job = None
         try:
             window.show()
-            enable_desktop(window, register_startup=False)
+            enable_desktop(window, register_startup=False, assistant_control=False)
             window.show_floating()
             application.processEvents()
             if window.grab().isNull():
@@ -120,6 +121,8 @@ def check_ui(output):
                 "audio_started": False,
                 "network_used": False,
                 "startup_changed": False,
+                "assistant_store_isolated": True,
+                "assistant_control_started": window.assistant_control is not None,
                 "width": window.width(),
                 "height": window.height(),
                 "floating_height": floating.height(),

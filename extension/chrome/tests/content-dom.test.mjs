@@ -6,10 +6,10 @@ import {JSDOM} from "jsdom";
 const detectorSource = await readFile(new URL("../detector.js", import.meta.url), "utf8");
 const contentSource = await readFile(new URL("../content.js", import.meta.url), "utf8");
 
-async function browserFixture(name) {
+async function browserFixture(name, overrideUrl) {
   const html = await readFile(new URL(`dom-fixtures/${name}.html`, import.meta.url), "utf8");
   const url = name.startsWith("meet") ? "https://meet.google.com/abc-defg-hij?authuser=7#private" : "https://cliq.zoho.com/?token=private#chat";
-  const dom = new JSDOM(html, {url, runScripts: "outside-only", pretendToBeVisual: true});
+  const dom = new JSDOM(html, {url: overrideUrl || url, runScripts: "outside-only", pretendToBeVisual: true});
   const {window} = dom;
   // jsdom parses HTML and evaluates actual CSS selectors, but has no layout
   // engine. Supply only its missing layout/innerText APIs. Visibility is derived
@@ -38,9 +38,12 @@ async function browserFixture(name) {
   window.setTimeout = (callback, delay = 0) => { const id = ++timerId; timeouts.set(id, {callback, due: now + delay}); return id; };
   window.clearTimeout = id => timeouts.delete(id);
   const events = [];
+  const messages = [];
+  const listeners = new Set();
   window.chrome = {runtime: {
-    async sendMessage(message) { assert.equal(message.type, "call-event"); events.push(JSON.parse(JSON.stringify(message.event))); return {ok: true}; },
-    onMessage: {addListener() {}},
+    id: "a".repeat(32),
+    async sendMessage(message) { messages.push(message); if (message.type === "call-event") events.push(JSON.parse(JSON.stringify(message.event))); return {ok: true}; },
+    onMessage: {addListener(callback) { listeners.add(callback); }, removeListener(callback) { listeners.delete(callback); }},
   }};
   window.eval(detectorSource);
   window.eval(contentSource);
@@ -51,8 +54,154 @@ async function browserFixture(name) {
     await Promise.resolve();
     await Promise.resolve();
   }
-  return {window, document: window.document, events, advance, close: () => window.close()};
+  return {window, document: window.document, events, messages, intervals, timeouts, listeners, advance, close: () => window.close()};
 }
+
+test("extension reload synchronous heartbeat failure stops timers and observation", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  b.window.VoiceLoopCommands = {};
+  let attempts = 0;
+  b.window.chrome.runtime.sendMessage = () => { attempts++; throw new Error("Extension context invalidated."); };
+  await b.advance(2000);
+  assert.equal(attempts, 1); assert.equal(b.intervals.size, 0); assert.equal(b.listeners.size, 0);
+  b.document.querySelector("[statuscontent]").textContent = "Ringing...";
+  await b.advance(20000); await b.advance(20000);
+  assert.equal(attempts, 1); assert.equal(b.timeouts.size, 0);
+});
+test("extension reload rejected call heartbeat stops without orphan sends", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  let attempts = 0;
+  b.window.chrome.runtime.sendMessage = async () => { attempts++; throw new Error("Extension context invalidated."); };
+  await b.advance(10000); await b.advance(10000);
+  assert.equal(attempts, 1); assert.equal(b.intervals.size, 0); assert.equal(b.listeners.size, 0);
+});
+test("removed extension runtime ID shuts down before touching messaging API", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  let attempts = 0;
+  b.window.chrome.runtime.sendMessage = () => { attempts++; throw new Error("Must not send"); };
+  Object.defineProperty(b.window.chrome.runtime, "id", {get() { throw new Error("Extension context invalidated."); }});
+  await b.advance(); assert.equal(attempts, 0); assert.equal(b.intervals.size, 0);
+});
+test("runtime invalidation between message-listener ID checks cannot escape the listener", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  const callback = [...b.listeners][0];
+  let reads = 0;
+  Object.defineProperty(b.window.chrome.runtime, "id", {get() {
+    if (++reads > 2) throw new Error("Extension context invalidated.");
+    return "a".repeat(32);
+  }});
+  assert.doesNotThrow(() => callback({type: "snapshot-request"}, {id: "a".repeat(32)}, () => {}));
+  await b.advance(10000);
+  assert.equal(b.intervals.size, 0); assert.equal(b.listeners.size, 0);
+});
+test("snapshot response to an invalidated worker does not escape the content listener", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  const callback = [...b.listeners][0];
+  assert.doesNotThrow(() => callback({type: "assistant-snapshot"}, {id: "a".repeat(32)}, () => { throw new Error("Extension context invalidated."); }));
+});
+test("transient worker rejection keeps detection alive and later heartbeat succeeds", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  const original = b.window.chrome.runtime.sendMessage;
+  b.window.chrome.runtime.sendMessage = async () => { throw new Error("Could not establish connection. Receiving end does not exist."); };
+  await b.advance(10000); assert.equal(b.intervals.size, 1);
+  b.window.chrome.runtime.sendMessage = original;
+  await b.advance(10000); assert.equal(b.events.length, 2); assert.equal(b.events.at(-1).state, "dialing");
+});
+test("page hide emits ended once and tears down observation", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  b.window.dispatchEvent(new b.window.Event("pagehide"));
+  await Promise.resolve();
+  assert.equal(b.events.at(-1).state, "ended"); assert.equal(b.intervals.size, 0); assert.equal(b.listeners.size, 0);
+  assert.match(b.events.at(-1).event_id, /^pagehide-/);
+  const count = b.events.length;
+  b.window.dispatchEvent(new b.window.Event("pagehide")); await b.advance(10000); assert.equal(b.events.length, count);
+});
+test("heartbeat refresh receives an explicit reply and UI terminal IDs identify their source", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  let response;
+  [...b.listeners][0]({type: "snapshot-request"}, {id: "a".repeat(32)}, value => { response = value; });
+  assert.equal(response.ok, true);
+  b.document.querySelector("[statuscontent]").textContent = "No answer";
+  await b.advance();
+  assert.match(b.events.at(-1).event_id, /^ui-ended-/);
+});
+
+test("incoming identity comes from the call wrapper, never the chat open behind it", async t => {
+  const b = await browserFixture("cliq-incoming", "https://cliq.zoho.com/company/987/chats/99999"); t.after(b.close);
+  assert.equal(b.events[0].chat_id, undefined);
+  b.document.querySelector("[mediacallwrapper]").setAttribute("chatid", "12345");
+  b.document.querySelector("[mediacallwrapper]").setAttribute("callerid", "111222333");
+  b.document.querySelector("[mediacallwrapper]").setAttribute("calleeid", "444555666");
+  await b.advance();
+  assert.equal(b.events.at(-1).chat_id, "12345");
+  assert.equal(b.events.at(-1).chat_url, "https://cliq.zoho.com/company/987/chats/12345");
+  assert.equal(b.events.at(-1).participant_id, "111222333");
+});
+
+test("call container temporarily missing its wrapper remains safe during a Cliq rerender", async t => {
+  const b = await browserFixture("cliq-incoming", "https://cliq.zoho.com/company/987/chats/99999"); t.after(b.close);
+  const wrapper = b.document.querySelector("[mediacallwrapper]");
+  wrapper.removeAttribute("mediacallwrapper");
+  await b.advance(10000);
+  assert.equal(b.events.at(-1).state, "ringing");
+  assert.equal(b.events.at(-1).chat_id, undefined);
+  wrapper.remove();
+  await b.advance(); await b.advance(2600);
+  assert.equal(b.events.at(-1).state, "ended");
+  assert.equal(b.intervals.size, 1);
+});
+
+test("outgoing call participant identity uses callee ID from its call wrapper", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  b.document.querySelector("[mediacallwrapper]").setAttribute("callerid", "111222333");
+  b.document.querySelector("[mediacallwrapper]").setAttribute("calleeid", "444555666");
+  await b.advance();
+  assert.equal(b.events.at(-1).participant_id, "444555666");
+});
+
+test("Cliq connecting rerender with hidden old wrapper and no timer preserves the outgoing call", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  const callId = b.events[0].call_id;
+  const connecting = await readFile(new URL("dom-fixtures/cliq-connecting.html", import.meta.url), "utf8");
+  const parsed = new b.window.DOMParser().parseFromString(connecting, "text/html");
+  b.document.querySelector("#mediacall_container").replaceWith(b.document.importNode(parsed.querySelector("#mediacall_container"), true));
+  for (const delay of [1000, 4000, 4000]) await b.advance(delay);
+  assert.equal(b.events.some(event => event.state === "ended" || event.state === "connected"), false);
+  const current = [...b.document.querySelectorAll("[mediacallwrapper]")].find(wrapper => wrapper.getAttribute("callid") === "synthetic-call-one");
+  const timer = b.document.createElement("span"); timer.id = "mediacallsessiontimer";
+  timer.innerHTML = "<span>00</span> : <span>00</span> : <span>02</span>";
+  current.querySelector(".AV-call-main").append(timer);
+  await b.advance(); await b.advance();
+  assert.equal(b.events.at(-1).state, "connected");
+  assert.equal(b.events.at(-1).call_id, callId); assert.equal(b.events.at(-1).direction, "outgoing");
+  assert.equal(b.events.at(-1).contact.name, "Test Contact");
+  current.remove(); await b.advance(); await b.advance(2600);
+  assert.equal(b.events.at(-1).state, "ended");
+});
+test("observed Cliq provisional ID handoff then split-span timer retains command-correlatable call ID", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  const wrapper = b.document.querySelector("[mediacallwrapper]");
+  wrapper.setAttribute("calleeid", "111222333"); await b.advance();
+  const callId = b.events.at(-1).call_id;
+  wrapper.setAttribute("callid", "synthetic-final-server-call"); await b.advance(1200);
+  assert.equal(b.events.at(-1).state, "dialing"); assert.equal(b.events.at(-1).call_id, callId);
+  assert.match(b.events.at(-1).event_id, /^native-handoff-/);
+  wrapper.className = "AV-call-wrapper AV-call-audio-only";
+  wrapper.querySelector(".AV-call-outgoing").style.display = "none";
+  wrapper.querySelector("#mediacallsessionsubtimer").innerHTML = '<span hours style="display:none">00</span><span separator style="display:none">:</span><span minutes>00</span><span separator>:</span><span seconds>05</span>';
+  await b.advance(); await b.advance();
+  assert.equal(b.events.at(-1).state, "connected"); assert.equal(b.events.at(-1).call_id, callId);
+  assert.equal(b.events.some(event => event.state === "ended"), false);
+});
+
+test("a visible native call wrapper takes priority over unrelated generic call status panels", async t => {
+  const b = await browserFixture("cliq-outgoing"); t.after(b.close);
+  const panel = b.document.createElement("div"); panel.setAttribute("data-call-state", "idle");
+  panel.innerHTML = "<span statuscontent>Call ended</span>";
+  b.document.body.prepend(panel);
+  await b.advance(); await b.advance(4000);
+  assert.equal(b.events.some(event => event.state === "ended"), false);
+});
 
 test("real content.js maps observed Cliq outgoing HTML to dialing/contact without hidden timer attendance", async t => {
   const b = await browserFixture("cliq-outgoing"); t.after(b.close);

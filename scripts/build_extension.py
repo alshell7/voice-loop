@@ -13,6 +13,7 @@ FILES = (
     "protocol.mjs",
     "detector.js",
     "content.js",
+    "commands.js",
     "popup.html",
     "popup.css",
     "popup.js",

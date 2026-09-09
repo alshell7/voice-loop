@@ -6,7 +6,7 @@ from pathlib import Path
 
 root = Path(SPECPATH).parent
 notices = [(str(root / "THIRD_PARTY.md"), "."), (str(root / "packaging/licenses"), "licenses")]
-for package in ("numpy", "soundcard", "cffi", "pycparser", "pyinstaller", "setuptools", "packaging", "PySide6-Essentials", "shiboken6", "keyring", "jaraco.classes", "jaraco.context", "jaraco.functools", "more-itertools", *( ["pywin32-ctypes"] if sys.platform == "win32" else [] )):
+for package in ("numpy", "soundcard", "cffi", "pycparser", "pyinstaller", "setuptools", "packaging", "PySide6-Essentials", "shiboken6", "keyring", "jaraco.classes", "jaraco.context", "jaraco.functools", "more-itertools", "openai", "mcp", "httpx", "httpcore", "anyio", "websockets", "pydantic", "pydantic_core", "tzdata", "certifi", "jiter", "sniffio", "distro", "typing_extensions", "typing-inspection", "annotated-types", "pydantic-settings", "python-dotenv", "starlette", "sse-starlette", "uvicorn", "click", "jsonschema", "jsonschema-specifications", "referencing", "rpds-py", "attrs", "pyjwt", "cryptography", "h11", "idna", "httpx-sse", "python-multipart", "tqdm", *( ["pywin32-ctypes", "pywin32"] if sys.platform == "win32" else [] )):
     distribution = importlib.metadata.distribution(package)
     for file in distribution.files or []:
         if any(marker in str(file).lower() for marker in ("license", "copying", "copyright")):
@@ -53,7 +53,10 @@ pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="VoiceLoop",
           debug=False, bootloader_ignore_signals=False, strip=False, upx=False,
           console=False, disable_windowed_traceback=False)
-collection = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="VoiceLoop")
+mcp_exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="VoiceLoopMCP",
+              debug=False, bootloader_ignore_signals=False, strip=False, upx=False,
+              console=True)
+collection = COLLECT(exe, mcp_exe, a.binaries, a.datas, strip=False, upx=False, name="VoiceLoop")
 if sys.platform == "darwin":
     app = BUNDLE(collection, name="VoiceLoop.app", bundle_identifier="org.voiceloop.desktop",
                  info_plist={

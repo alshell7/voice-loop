@@ -24,6 +24,7 @@ def main():
         "- macOS Apple Silicon: `*-macos-arm64.pkg`\n"
         "- macOS Intel: `*-macos-x64.pkg`\n"
         "- Chrome companion: `*-chrome.zip` (extract and load unpacked)\n"
+        "- Desktop installers include the VoiceLoopMCP stdio server.\n"
         "- Each download has a SHA-256 checksum sidecar.\n\n"
         "## Before installing\n\n"
         "These builds are unsigned and not notarized. OS approval may be required. "
@@ -34,6 +35,8 @@ def main():
         "every device, or macOS installation. See the verification matrix before use.\n\n"
         f"[Setup and usage](https://github.com/{repository}/blob/{commit}/README.md) · "
         f"[Chrome](https://github.com/{repository}/blob/{commit}/docs/BROWSER_EXTENSION.md) · "
+        "[AI Assistant, Automation, and MCP]("
+        f"https://github.com/{repository}/blob/{commit}/docs/AI_ASSISTANT.md) · "
         f"[Verification](https://github.com/{repository}/blob/{commit}/docs/TESTING.md) · "
         f"[Changelog](https://github.com/{repository}/blob/{commit}/CHANGELOG.md)\n",
         encoding="utf-8",

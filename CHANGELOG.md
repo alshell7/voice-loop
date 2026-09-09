@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.0 (prerelease)
+
+- Add AI Assistant with configurable OpenAI Realtime model, voice, instructions,
+  objective, and a bounded call duration. Activate audio only after connection;
+  use the virtual meeting return without opening the physical microphone.
+- Add immediate and scheduled Cliq calls, allowed incoming-call answering, and
+  assistance after joining an allowed Google Meet. Enforce exact chat links,
+  paired Chrome profiles, platform permissions, busy status, and working hours.
+- Learn incoming participant identity from successful outgoing calls to allowed
+  chats. Leave unknown or ambiguous callers unanswered.
+- Add durable job history, cancellation, local JSON/HTML transcripts, expired
+  schedules, and interrupted-call recovery without automatic redialing.
+- Add Automation for concise summaries sent through the Chrome extension's
+  browser controls. Require a per-chat opt-in; support assistant conversations
+  and completed browser-tagged recordings after separate transcription consent.
+- Bundle a stdio MCP executable with status, call, schedule, job, and cancel
+  tools. Keep MCP authorization separate from the extension pairing token.
+- Confirm the scoped Cliq Away/Busy audio-call prompt for an authorized outgoing
+  call, and stop stale extension timers and observers after a context reload.
+- Keep browser hangup processing alive for a bounded normal-quit grace period
+  and persist the assistant result before shutdown.
+- Show preparation, ringing, and active conversation separately in floating
+  controls, reset elapsed time on stop, and prevent conflicting local playback.
+- Isolate diagnostic and smoke-test assistant storage and leave their local
+  MCP listener off so verification cannot recover or interrupt real user jobs.
+- Preserve the complete objective and session instructions in the Realtime
+  opening response. Verify completion and output drain with a separate paid
+  synthetic-audio check that does not open audio hardware or make a browser call.
+- Add configuration, UI, lifecycle, audio, MCP, and browser-command regression
+  coverage. Windows native/frozen checks and a live two-way Cliq audio test pass.
+  The recipient ended that call and the summary was sent manually;
+  assistant-initiated browser hangup and automatic sending remain unverified live.
+
 ## 0.4.1
 
 - Add an opt-in Screen privacy setting to exclude the main window, floating

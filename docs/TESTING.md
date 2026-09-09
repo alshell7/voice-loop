@@ -1,7 +1,123 @@
 # Verification record
 
 Local host: Windows 11 x64, Python 3.13.14, SoundCard 0.4.6, NumPy 2.5.3,
-PySide6 Essentials 6.11.2, keyring 25.7.0. Updated for Voice Loop 0.4.1.
+PySide6 Essentials 6.11.2, keyring 25.7.0. The current development build is 0.5.0;
+earlier released checks are labeled below. Live assistant-call verification
+remains separate from automated and packaging results.
+
+## AI Assistant and Automation implementation checks
+
+- The most recent full Python run passed **396 tests in 265.91 seconds**.
+  Realtime-focused checks also passed after the opening-response correction.
+  Ruff lint and formatting checks, and actionlint workflow checks, pass. The
+  browser extension suite passes **99 Node tests**, including multiline draft
+  verification and message receipt checks using controlled fixtures.
+- Configuration and UI coverage includes exact supported chat
+  URLs, regional hosts, forged IDs, malformed policy files failing closed,
+  time zones, weekday boundaries, overnight shifts, daylight saving changes,
+  objective validation, aware schedules, per-chat flags, profile selection,
+  missing prerequisites, cancellation controls, and escaped transcript rendering.
+- Coordinator coverage includes prepare/ready/connected
+  audio gates, duplicate callbacks and immediate requests, wrong chat/profile
+  events, policy revocation during preparation, existing manual audio, missing
+  credentials, missed/cancelled schedules, incoming calls that connect or end
+  while preparing, late events after cancellation, restart uncertainty, browser
+  disconnection, and overlapping calls.
+- Summary coordinator checks confirm the original chat/profile, call-end
+  gating, no duplicate sends, opt-out before delivery, and failure when call end
+  remains unconfirmed. Test doubles replace browser commands, audio devices,
+  credentials, and OpenAI responses; no real recipient is called by these tests.
+- Source Qt render checks inspected Call, Settings, Contacts, History, and
+  Automation using synthetic contacts. The quick-call page remains compact
+  independently of the longer settings tab. Editable dropdowns reuse the
+  explicitly styled completion popup. Floating controls distinguish preparation,
+  dialing/ringing, and active audio, reset the timer on stop, and restore the
+  ordinary mute help afterward. Playback cannot start or resume during an AI call.
+- Source audio and browser integration checks pass using generated audio,
+  authenticated loopback events, and real spawned audio workers. They do not
+  open a real microphone or call a real contact.
+- Native and frozen **Windows 0.5.0** checks pass for MCP startup/runtime and
+  discovery of all five tools, the desktop `check-ui` diagnostic, and
+  `check-capture`. The local Codex MCP registration uses the source Python
+  command `-m voiceloop.assistant_mcp`, with no OpenAI API key in MCP configuration.
+- Diagnostics and UI/browser smoke tools use temporary assistant databases and
+  leave assistant control off when exercising tray integration. An isolation
+  regression preserves an existing simulated active-call database and control
+  token unchanged. The isolated source diagnostic reports no audio, network, or
+  startup changes, and no assistant control listener started.
+- Additional coverage includes normal-quit hangup grace and transcript
+  persistence, the per-chat summary path for completed ordinary browser call
+  recordings after transcription, cancellation and scoped confirmation of
+  Cliq's Away/Busy audio-call prompt, and cleanup of invalidated extension
+  contexts after reload.
+
+### Live Windows Cliq call
+
+A later authorized outbound test with the **0.5.0 development build on Windows
+and Chrome** connected and exchanged audio in both directions. Cliq selected
+**VoiceLoop Mic** through VB-CABLE and **VoiceLoop Speaker** through Hi-Fi Cable.
+The extension confirmed the scoped Away prompt, dialed, and preserved the call
+when Cliq replaced its provisional invitation ID with the connected native ID.
+The local diagnostic recorded this handoff instead of treating it as call end.
+
+The call produced eight transcript turns: three from the participant and five
+from the assistant. Audio diagnostics reported the following mono-frame counts
+at 24 kHz; no private utterances or recipient details are included here:
+
+| Diagnostic | Frames |
+| --- | ---: |
+| Captured meeting input | 501,600 |
+| Input marked voiced by the diagnostic | 72,960 |
+| Uploaded meeting input | 420,960 |
+| Generated assistant audio | 825,600 |
+| Assistant audio acknowledged as played | 401,280 |
+
+Generated and played counts differ; generated audio alone is not evidence that
+the recipient heard it. The participant requested a stop and ended the call at
+approximately 32 seconds. Voice Loop observed browser call end and recorded a
+`cancelled` worker result. **Assistant-initiated browser hangup, including the
+configured time-limit path, was not verified by this call.** Local
+`transcript.json` and `transcript.html` exports were created.
+
+### Live summary and separate Realtime completion check
+
+Automation generated a summary and inserted a valid multiline draft into the
+correct chat. The extension's newline comparison reported an ambiguous result.
+The user then **manually pressed Send**, and the chat displayed a sent message.
+**Automatic Send remains unverified in a live call.** No automated resend was
+attempted. The multiline-draft correction is covered separately by browser
+fixture tests; it does not turn this manual-send observation into an automatic
+delivery result.
+
+A separate, explicitly authorized paid OpenAI Realtime check used generated
+test data and a fake audio sink, with **no audio hardware or browser call**. It
+completed in 10.88 seconds and generated 150,000 PCM frames at 24 kHz, or 6.25
+seconds of audio. It conveyed the supplied test objective, identified itself as
+AI, and included a thank-you and goodbye. The model invoked
+`finish_call`, the worker returned `completed`, and output drain was verified.
+This check followed a correction that preserves the full objective and session
+instructions in the opening response. It verifies Realtime completion behavior,
+not Cliq's hangup control or message delivery.
+
+Real incoming-call answering, assistant-initiated Cliq hangup, and automatic
+summary sending still need their own authorized live verification. A successful
+API check, fixture, or queued command is not a substitute. Keep keys, private
+transcripts, and recipient identifiers out of public verification reports.
+
+The following assistant suites run without calling OpenAI or a real contact:
+
+```sh
+python -m pytest tests/test_assistant_config.py tests/test_assistant_ui.py tests/test_assistant.py
+python -m pytest tests/test_assistant_audio.py tests/test_realtime.py
+python -m pytest tests/test_assistant_control.py tests/test_assistant_mcp.py
+node --test extension/chrome/tests/*.test.mjs
+```
+
+Real incoming-call identity mapping, macOS/Linux assistant audio, and
+account-specific browser control still need their own device/browser
+verification. See
+[AI Assistant setup and limits](AI_ASSISTANT.md). Earlier recording checks below
+do not establish an end-to-end AI conversation.
 
 ## Capture protection checks (0.4.1)
 

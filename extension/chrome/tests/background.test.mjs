@@ -30,12 +30,12 @@ async function harness(sharedStorage) {
     runtime: {id, getURL: path => `chrome-extension://${id}/${path}`, onMessage: listener(), onStartup: listener()},
   };
   globalThis.chrome = chrome;
-  const transport = {offline: false, unauthorized: false};
+  const transport = {offline: false, unauthorized: false, commands: []};
   globalThis.fetch = async (url, init) => {
     requests.push({url, ...init});
     if (transport.offline) throw new TypeError("Failed to fetch");
     return {ok: !transport.unauthorized, status: transport.unauthorized ? 401 : 200,
-      async json() { return {ok: true, version: 1, application: "VoiceLoop"}; }};
+      async json() { return {ok: true, version: 1, application: "VoiceLoop", ...(url.endsWith("/commands/poll") ? {commands: transport.commands.splice(0, 1)} : {})}; }};
   };
   await import(`../background.js?test=${crypto.randomUUID()}`);
   async function message(body, sender = {id, tab: {id: 7}, frameId: 0, url: "https://cliq.zoho.com/"}) {
@@ -87,8 +87,8 @@ test("offline call ended state survives worker restart without replaying connect
   h = await harness(h.storage);
   h.chrome.runtime.onStartup.callbacks[0]();
   await h.popup({type: "status"}); // Serialized behind the startup flush.
-  assert.equal(h.requests.length, 1);
-  assert.equal(JSON.parse(h.requests[0].body).state, "ended");
+  assert.equal(h.requests.filter(request => request.url.endsWith("/events")).length, 1);
+  assert.equal(JSON.parse(h.requests.find(request => request.url.endsWith("/events")).body).state, "ended");
   assert.equal(h.storage.session.inspect().outbox.length, 0);
 });
 test("closing an attended tab emits ended using its retained call metadata", async () => {
@@ -129,4 +129,95 @@ test("pairing refreshes this extension's scripts without needing sensitive tab U
   assert.equal((await h.popup({type: "pair", token: "z".repeat(40)})).ok, true);
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(refreshed, [{id: 3, type: "snapshot-request"}, {id: 8, type: "snapshot-request"}]);
+});
+
+function command(profileId, patch = {}) {
+  return {version: 1, command_id: "command-1", profile_id: profileId, action: "call", provider: "zoho_cliq", chat_id: "12345", chat_url: "https://cliq.zoho.com/company/987/chats/12345", call_id: "", text: "", expires_at: new Date(Date.now() + 45000).toISOString(), ...patch};
+}
+test("commands are durably claimed before execution and never dial twice", async () => {
+  let h = await harness(); const profile = (await h.popup({type: "status"})).profileId;
+  const cmd = command(profile); h.transport.commands.push(cmd);
+  const actions = [];
+  const attachTabs = current => {
+    current.chrome.tabs.query = async () => [{id: 7, url: cmd.chat_url}];
+    current.chrome.tabs.sendMessage = async (_id, message) => {
+      if (message.type === "assistant-snapshot") return {ready: true, active: false};
+      if (message.type === "assistant-command") {
+        assert.equal(current.storage.local.inspect().commandJournal[cmd.command_id].result, null);
+        actions.push(message.command.action); return {status: "succeeded", detail: "Dialing confirmed.", call_id: "new-call"};
+      }
+    };
+  };
+  attachTabs(h);
+  await h.message({type: "assistant-pulse"});
+  assert.deepEqual(actions, ["call"]);
+  assert.equal(h.storage.local.inspect().commandJournal[cmd.command_id].acknowledged, true);
+  await h.message(h.event("dialing", {call_id: "new-call"}));
+  const event = JSON.parse(h.requests.findLast(request => request.url.endsWith("/events")).body);
+  assert.equal(event.chat_id, "12345"); assert.equal(event.command_id, cmd.command_id); assert.equal(event.profile_id, profile);
+  h = await harness(h.storage); attachTabs(h); h.transport.commands.push(cmd);
+  await h.message({type: "assistant-pulse"});
+  assert.deepEqual(actions, ["call"]);
+});
+test("restart with unfinished claim reports ambiguous without browser side effects", async () => {
+  const h = await harness({local: area({pairingToken: "x".repeat(43), profileId: "profile-1", commandJournal: {"unfinished-1": {created: Date.now(), result: null, acknowledged: false}}}), session: area()});
+  h.chrome.tabs.query = async () => { throw new Error("Must not inspect or dial tabs"); };
+  await h.message({type: "assistant-pulse"});
+  const result = JSON.parse(h.requests.find(request => request.url.endsWith("/commands/result")).body);
+  assert.equal(result.status, "ambiguous"); assert.equal(result.command_id, "unfinished-1");
+});
+test("expired and other-profile commands never reach a tab", async () => {
+  const h = await harness(); const profile = (await h.popup({type: "status"})).profileId;
+  h.chrome.tabs.query = async () => { throw new Error("Must not inspect or dial tabs"); };
+  h.transport.commands.push(command("different-profile"));
+  await h.message({type: "assistant-pulse"});
+  assert.deepEqual(h.storage.local.inspect().commandJournal, {});
+  const restarted = await harness(h.storage);
+  restarted.transport.commands.push(command(profile, {expires_at: new Date(Date.now() - 1000).toISOString()}));
+  await restarted.message({type: "assistant-pulse"});
+  assert.deepEqual(restarted.storage.local.inspect().commandJournal, {});
+});
+test("a stale heartbeat snapshot-channel failure never fabricates call ended", async () => {
+  const h = await harness(); await h.message(h.event("dialing"));
+  const calls = h.storage.session.inspect().calls; calls[7].seenAt = Date.now() - 20000;
+  await h.storage.session.set({calls});
+  h.chrome.tabs.get = async id => ({id});
+  h.chrome.tabs.sendMessage = async () => { throw new Error("The message port closed before a response was received."); };
+  h.chrome.alarms.onAlarm.callbacks[0]({name: "voiceloop-retry"});
+  await h.popup({type: "status"});
+  assert.equal(h.storage.session.inspect().calls[7]?.state, "dialing");
+  assert.equal(h.requests.filter(request => request.url.endsWith("/events")).some(request => JSON.parse(request.body).state === "ended"), false);
+});
+test("only a positively missing tab produces a synthetic terminal event", async () => {
+  const h = await harness(); await h.message(h.event("dialing"));
+  h.chrome.tabs.get = async () => { throw new Error("Chrome is temporarily unavailable"); };
+  h.chrome.alarms.onAlarm.callbacks[0]({name: "voiceloop-retry"}); await h.popup({type: "status"});
+  assert.ok(h.storage.session.inspect().calls[7]);
+  h.chrome.tabs.get = async () => { throw new Error("No tab with id: 7."); };
+  h.chrome.alarms.onAlarm.callbacks[0]({name: "voiceloop-retry"}); await h.popup({type: "status"});
+  const ended = JSON.parse(h.requests.findLast(request => request.url.endsWith("/events")).body);
+  assert.equal(ended.state, "ended"); assert.match(ended.event_id, /^tab-missing-/);
+});
+test("an old terminal or pre-command event cannot claim a new outbound command", async () => {
+  const h = await harness(); await h.popup({type: "status"});
+  const now = Date.now();
+  const binding = {command_id: "new-command", chat_id: "12345", chat_url: "https://cliq.zoho.com/company/987/chats/12345", call_id: "", created: now, expires: now + 45000};
+  await h.storage.session.set({bindings: {7: binding}});
+  await h.message(h.event("ended", {call_id: "old-call"}));
+  assert.equal(JSON.parse(h.requests.at(-1).body).command_id, undefined);
+  assert.equal(h.storage.session.inspect().bindings[7].call_id, "");
+  await h.message(h.event("dialing", {call_id: "old-call-2", timestamp: new Date(now - 1000).toISOString()}));
+  assert.equal(JSON.parse(h.requests.at(-1).body).command_id, undefined);
+  assert.equal(h.storage.session.inspect().bindings[7].call_id, "");
+  await h.message(h.event("dialing", {call_id: "new-call"}));
+  assert.equal(JSON.parse(h.requests.at(-1).body).command_id, "new-command");
+});
+test("late end or heartbeat from an old call cannot erase or resurrect over a newer tab call", async () => {
+  const h = await harness();
+  await h.message(h.event("dialing", {call_id: "old-call"}));
+  await h.message(h.event("dialing", {call_id: "new-call"}));
+  await h.message(h.event("ended", {call_id: "old-call"}));
+  assert.equal(h.storage.session.inspect().calls[7]?.call_id, "new-call");
+  await h.message(h.event("dialing", {call_id: "old-call"}));
+  assert.equal(h.storage.session.inspect().calls[7]?.call_id, "new-call");
 });

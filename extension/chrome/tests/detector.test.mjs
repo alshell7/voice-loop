@@ -40,6 +40,57 @@ test("slow incoming handshake retains identity and direction without establishin
   assert.equal(attended.call_id, ring.call_id);
   assert.equal(attended.direction, "incoming");
 });
+test("same native call with visible hangup does not end when a connecting timer disappears", () => {
+  const t = tracker();
+  t.observe({...outgoing, nativeCallKey: "native-call"}, 0);
+  const connecting = {...outgoing, nativeCallKey: "native-call", dialing: false, elapsed: -1};
+  for (const at of [1000, 5000, 9000]) {
+    assert.equal(t.observe(connecting, at), null);
+    assert.equal(t.call.state, "dialing");
+  }
+  t.observe({...connecting, elapsed: 1}, 10000);
+  const attended = t.observe({...connecting, elapsed: 2}, 10800);
+  assert.equal(attended.state, "connected"); assert.equal(attended.direction, "outgoing");
+  assert.equal(t.observe({...connecting, ended: true}, 11000).state, "ended");
+});
+test("same attended native call remains connected while its timer rerenders", () => {
+  const t = tracker(), snapshot = {...connected, nativeCallKey: "native-call"};
+  t.observe(snapshot, 0); t.observe(snapshot, 800);
+  assert.equal(t.observe({...snapshot, elapsed: -1}, 1000), null);
+  assert.equal(t.observe({...snapshot, elapsed: -1}, 6000), null);
+  assert.equal(t.call.state, "connected");
+});
+test("outgoing provisional native ID handoff preserves one logical call and raw ID history", () => {
+  const t = tracker();
+  const dial = {...outgoing, nativeCallKey: "provisional-key", participant_id: "111222333"};
+  const first = t.observe(dial, 1000);
+  const handoff = t.observe({...dial, nativeCallKey: "server-key"}, 2200);
+  assert.equal(handoff.state, "dialing"); assert.equal(handoff.call_id, first.call_id);
+  assert.equal(t.lastUpdateReason, "native-handoff"); assert.equal(t.lastEndReason, "");
+  assert.deepEqual(t.nativeKeyHistory.map(entry => entry.key), ["provisional-key", "server-key"]);
+  const attended = {...dial, nativeCallKey: "server-key", dialing: false, elapsed: 5};
+  t.observe(attended, 3000);
+  assert.equal(t.observe(attended, 3800).call_id, first.call_id);
+  assert.equal(t.call.state, "connected");
+});
+for (const boundary of ["recipient", "missing-participant", "incoming", "gap", "ended", "connected", "stale-observation", "provider"]) {
+  test(`native call IDs are never merged across ${boundary} boundary`, () => {
+    const t = tracker();
+    const dial = {...outgoing, nativeCallKey: "old-key", participant_id: "111222333"};
+    t.observe(dial, 0);
+    const next = {...dial, nativeCallKey: "new-key"};
+    let now = 1200;
+    if (boundary === "recipient") next.participant_id = "999999999";
+    if (boundary === "missing-participant") next.participant_id = "";
+    if (boundary === "incoming") next.incoming = true;
+    if (boundary === "provider") next.provider = "google_meet";
+    if (boundary === "gap") t.observe({...dial, callPanel: false, hangup: false}, 1000);
+    if (boundary === "ended") next.ended = true;
+    if (boundary === "stale-observation") now = 6000;
+    if (boundary === "connected") { t.observe({...dial, dialing: false, elapsed: 1}, 100); t.observe({...dial, dialing: false, elapsed: 2}, 900); }
+    assert.equal(t.observe(next, now).state, "ended"); assert.equal(t.lastEndReason, "native-replaced");
+  });
+}
 test("a pending handshake still ends on explicit termination or actual wrapper absence", () => {
   for (const explicit of [true, false]) {
     const t = tracker();
@@ -155,6 +206,7 @@ test("allowlist rejects spoofed and unsupported website origins", () => {
 test("timer parser accepts duration and rejects invalid text", () => {
   assert.equal(timerSeconds(" 00:01 "), 1);
   assert.equal(timerSeconds("1:02:03"), 3723);
+  assert.equal(timerSeconds(" 00 : 01 : 02 "), 62);
   assert.equal(timerSeconds("12:60"), null);
   assert.equal(timerSeconds("Calling..."), null);
   assert.equal(timerSeconds(""), null);

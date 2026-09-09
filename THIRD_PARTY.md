@@ -11,6 +11,9 @@ Voice Loop's own source is MIT licensed. Dependencies retain their own licenses:
 | CFFI | [MIT](https://cffi.readthedocs.io/en/latest/) |
 | pycparser | [BSD 3-Clause](https://github.com/eliben/pycparser) |
 | keyring and jaraco helpers | [MIT](https://github.com/jaraco/keyring) |
+| OpenAI Python SDK | [Apache 2.0](https://github.com/openai/openai-python) |
+| Model Context Protocol Python SDK | [MIT](https://github.com/modelcontextprotocol/python-sdk) |
+| Python tzdata package | [Apache 2.0; bundled time-zone notices also apply](https://github.com/python/tzdata) |
 | more-itertools | [MIT](https://github.com/more-itertools/more-itertools) |
 | pywin32-ctypes (Windows) | [BSD 3-Clause](https://github.com/enthought/pywin32-ctypes) |
 | PyInstaller bootloader | [GPL with distribution exception](https://pyinstaller.org/en/stable/license.html) |
@@ -18,6 +21,12 @@ Voice Loop's own source is MIT licensed. Dependencies retain their own licenses:
 The packaging specification copies installed dependency license files into the
 application's `licenses` data directory. NumPy's notices cover its bundled numerical
 libraries. Review notices for the exact artifacts you redistribute.
+
+The OpenAI and MCP SDKs bring their own HTTP, WebSocket, validation, and protocol
+dependencies. The packaging specification includes installed license files for
+those packages alongside the SDK and tzdata notices. The bundled VoiceLoopMCP
+executable shares the app runtime and those notices. API access and cloud model
+services are separate from the SDK's open-source license.
 
 Qt, PySide6 and Shiboken are used under LGPLv3. They are dynamically linked in
 the onedir app and can be replaced with compatible modified builds. Reverse

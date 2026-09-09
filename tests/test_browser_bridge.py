@@ -242,3 +242,171 @@ def test_tokens_and_contact_data_are_not_written_to_server_logs(bridge, capsys):
     assert post(bridge, headers={"Authorization": "Bearer sensitive-value"})[0] == 401
     output = capsys.readouterr()
     assert output.out == output.err == ""
+
+
+def command_request(bridge, endpoint, value):
+    status, _, body = request(
+        bridge,
+        "POST",
+        "/v1/commands/" + endpoint,
+        json.dumps(value),
+        {"Content-Type": "application/json"},
+    )
+    return status, json.loads(body)
+
+
+def poll(bridge, profile="profile-1"):
+    return command_request(
+        bridge,
+        "poll",
+        {"version": 1, "profile_id": profile, "capabilities": ["call-control-v1", "zoho_cliq"]},
+    )
+
+
+def queue_call(bridge, **kwargs):
+    return bridge.submit_command(
+        "call",
+        profile_id="profile-1",
+        chat_id="12345",
+        chat_url="https://cliq.zoho.com/company/987/chats/12345",
+        **kwargs,
+    )
+
+
+def test_commands_are_profile_bound_once_delivered_and_results_idempotent(bridge):
+    assert poll(bridge)[0] == 200
+    assert bridge.profiles()[0]["capabilities"] == ["call-control-v1", "zoho_cliq"]
+    command_id = queue_call(bridge)
+    assert poll(bridge, "profile-2")[1]["commands"] == []
+    command = poll(bridge)[1]["commands"][0]
+    assert command["command_id"] == command_id
+    assert command["chat_id"] == "12345"
+    assert poll(bridge)[1]["commands"] == []  # Never redial on lost response.
+    result = {
+        "version": 1,
+        "profile_id": "profile-1",
+        "command_id": command_id,
+        "status": "succeeded",
+        "call_id": "call-123",
+        "detail": "Dialing confirmed.",
+    }
+    assert command_request(bridge, "result", result | {"profile_id": "profile-2"})[0] == 400
+    assert command_request(bridge, "result", result)[0] == 200
+    assert command_request(bridge, "result", result)[0] == 200
+    results = bridge.drain_results()
+    assert len(results) == 1
+    assert results[0]["call_id"] == "call-123"
+    assert results[0]["status"] == "succeeded"
+    assert queue_call(bridge, command_id=command_id) == command_id
+    assert poll(bridge)[1]["commands"] == []
+
+
+def test_cancellation_prevents_undelivered_call_but_reports_leased_uncertainty(bridge):
+    poll(bridge)
+    first = queue_call(bridge)
+    assert bridge.cancel_command(first) == "cancelled"
+    assert poll(bridge)[1]["commands"] == []
+    second = queue_call(bridge)
+    poll(bridge)
+    assert bridge.cancel_command(second) == "ambiguous"
+    assert bridge.cancel_command("missing") == "unknown"
+    bridge.stop()
+    results = {value["command_id"]: value for value in bridge.drain_results()}
+    assert results[first]["status"] == "failed"
+    assert results[second]["status"] == "ambiguous"
+
+
+def test_expired_lease_is_ambiguous_and_never_requeued(bridge, monkeypatch):
+    poll(bridge)
+    command = queue_call(bridge, ttl=1)
+    poll(bridge)
+    now = time.time()
+    monkeypatch.setattr("voiceloop.browser_bridge.time.time", lambda: now + 2)
+    assert bridge.drain_results()[0]["status"] == "ambiguous"
+    assert poll(bridge)[1]["commands"] == []
+    assert queue_call(bridge, command_id=command) == command
+
+
+def test_commands_reject_unknown_profile_invalid_target_and_conflicting_id(bridge):
+    with pytest.raises(ValueError, match="profile"):
+        queue_call(bridge)
+    poll(bridge)
+    for target in [
+        "https://cliq.zoho.com.evil.test/company/987/chats/12345",
+        "https://user@cliq.zoho.com/company/987/chats/12345",
+        "https://cliq.zoho.com/company/987/chats/22222",
+        "https://cliq.zoho.com/company/987/chats/12345?secret=value",
+    ]:
+        with pytest.raises(ValueError):
+            bridge.submit_command("call", profile_id="profile-1", chat_id="12345", chat_url=target)
+    command = queue_call(bridge)
+    with pytest.raises(ValueError, match="another action"):
+        queue_call(bridge, command_id=command, text="different")
+    with pytest.raises(ValueError, match="specific call"):
+        bridge.submit_command("hangup", profile_id="profile-1")
+
+
+def test_command_endpoint_auth_and_input_validation(bridge):
+    assert (
+        request(
+            bridge,
+            "POST",
+            "/v1/commands/poll",
+            "{}",
+            {"Content-Type": "application/json", "Authorization": "Bearer invalid"},
+        )[0]
+        == 401
+    )
+    assert (
+        command_request(
+            bridge,
+            "poll",
+            {"version": 1, "profile_id": "profile-1", "capabilities": ["arbitrary-js"]},
+        )[0]
+        == 400
+    )
+    assert (
+        command_request(
+            bridge, "poll", {"version": 1, "profile_id": "profile-1", "label": "x\ninvalid"}
+        )[0]
+        == 400
+    )
+
+
+def test_optional_call_identity_is_validated_and_backward_compatible(bridge):
+    event = payload() | {
+        "provider": "zoho_cliq",
+        "url": "https://cliq.zoho.com/",
+        "profile_id": "profile-1",
+        "command_id": "cmd-1",
+        "chat_id": "12345",
+        "chat_url": "https://cliq.zoho.com/company/987/chats/12345",
+    }
+    assert post(bridge, event)[0] == 202
+    parsed = bridge.drain()[0]
+    assert (parsed.chat_id, parsed.profile_id, parsed.command_id) == ("12345", "profile-1", "cmd-1")
+    assert (
+        post(bridge, event | {"chat_url": "https://cliq.zoho.eu/company/987/chats/12345"})[0] == 400
+    )
+    assert post(bridge, event | {"chat_id": "54321"})[0] == 400
+    assert post(bridge, event | {"participant_id": "111222333"})[0] == 202
+    assert bridge.drain()[0].participant_id == "111222333"
+    assert post(bridge, event | {"participant_id": "caller@example.com"})[0] == 400
+
+
+def test_diagnostic_terminal_id_prefixes_preserve_event_protocol(bridge):
+    reasons = [
+        "native-handoff",
+        "native-replaced",
+        "ui-ended",
+        "ui-absent",
+        "pagehide",
+        "tab-closed",
+        "tab-missing",
+        "navigation",
+        "unpaired",
+    ]
+    identifiers = [reason + "-11111111-2222-3333-4444-555555555555" for reason in reasons]
+    for identifier in identifiers:
+        assert post(bridge, payload() | {"event_id": identifier, "state": "ended"})[0] == 202
+    assert [event.event_id for event in bridge.drain()] == identifiers

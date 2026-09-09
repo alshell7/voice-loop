@@ -3,7 +3,7 @@ Unicode True
 !include "x64.nsh"
 !include "LogicLib.nsh"
 !ifndef APP_VERSION
-!define APP_VERSION "0.4.1"
+  !define APP_VERSION "0.5.0"
 !endif
 Name "Voice Loop"
 OutFile "..\dist\VoiceLoop-${APP_VERSION}-windows-x64-setup.exe"
@@ -73,6 +73,7 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\Voice Loop\Voice Loop.lnk"
   RMDir "$SMPROGRAMS\Voice Loop"
   Delete "$INSTDIR\VoiceLoop.exe"
+  Delete "$INSTDIR\VoiceLoopMCP.exe"
   Delete "$INSTDIR\DRIVER-NOTICE.txt"
   RMDir /r "$INSTDIR\_internal"
   RMDir /r "$INSTDIR\drivers"

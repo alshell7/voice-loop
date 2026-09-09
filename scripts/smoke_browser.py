@@ -50,6 +50,7 @@ def main():
             device_provider=lambda: Devices([microphone, meeting], [speaker]),
             contacts=Contacts(root / "contacts.json"),
             browser_bridge=bridge,
+            assistant_directory=root / "assistant",
         )
         window.timer.stop()
         window.configuration = lambda: configuration

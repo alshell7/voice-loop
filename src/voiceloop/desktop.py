@@ -40,7 +40,16 @@ def tray_icon(state):
 
 def update_tray_status(window):
     engine = window.engine
-    state = "off" if not engine.active else "muted" if engine.muted else "active"
+    assistant_active = getattr(getattr(window, "assistant", None), "active", False)
+    state = (
+        "active"
+        if assistant_active
+        else "off"
+        if not engine.active
+        else "muted"
+        if engine.muted
+        else "active"
+    )
     if state != window.tray_state:
         window.tray.setIcon(window.tray_icons[state])
         window.tray_state = state
@@ -57,7 +66,9 @@ def update_tray_status(window):
         else "Off",
     )
     window.tray.setToolTip(
-        "Voice Loop · " + label + (" · Mic muted" if engine.muted and engine.active else "")
+        "Voice Loop · "
+        + ("AI Assistant on call" if assistant_active else label)
+        + (" · Mic muted" if engine.muted and engine.active else "")
     )
 
 
@@ -98,8 +109,11 @@ class SingleInstance:
         self.lock.unlock()
 
 
-def enable_desktop(window, *, register_startup=True):
+def enable_desktop(window, *, register_startup=True, assistant_control=True):
+    """Enable tray integration; diagnostics can leave assistant runtime and MCP control off."""
     window.desktop_enabled = True
+    if assistant_control:
+        window.enable_assistant()
     QApplication.instance().setQuitOnLastWindowClosed(False)
     window.tray_icons = {state: tray_icon(state) for state in TRAY_COLORS}
     window.tray_state = None
@@ -116,7 +130,11 @@ def enable_desktop(window, *, register_startup=True):
         menu.clear()
         menu.addAction("Show floating controls", window.show_floating)
         menu.addAction("Open Voice Loop", window.show_main)
-        if window.engine.active:
+        if window.assistant.active:
+            menu.addAction(
+                "End AI call", lambda: window.assistant.cancel(window.assistant.active_id)
+            )
+        elif window.engine.active:
             menu.addAction("Turn off · finish session", window.stop_session)
         else:
             menu.addAction("Turn on · route only", lambda: window.start(record=False))
@@ -124,6 +142,7 @@ def enable_desktop(window, *, register_startup=True):
         mute = menu.addAction("Mute microphone", window.toggle_mute)
         mute.setCheckable(True)
         mute.setChecked(window.engine.muted)
+        mute.setEnabled(not window.assistant.active)
         menu.addSeparator()
         for name, title, inventory in (
             ("microphone", "Microphone", window.devices.inputs),
@@ -138,7 +157,7 @@ def enable_desktop(window, *, register_startup=True):
                 action.setCheckable(True)
                 action.setChecked(bool(current and current.id == device.id))
                 action.setToolTip("Switching finishes the current session and starts a new one.")
-                action.setEnabled(not window.install_future)
+                action.setEnabled(not window.install_future and not window.assistant.active)
                 action.triggered.connect(
                     lambda _checked=False, n=name, d=device: window.switch_device(n, d)
                 )
@@ -147,6 +166,8 @@ def enable_desktop(window, *, register_startup=True):
         menu.addSeparator()
         menu.addAction("Recordings", lambda: window.show_main(2))
         menu.addAction("Preferences", lambda: window.show_main(3))
+        menu.addAction("AI Assistant", lambda: window.show_main(4))
+        menu.addAction("Automation", lambda: window.show_main(5))
         menu.addAction("Open storage folder", lambda: window.open_path(window.settings.recordings))
         menu.addSeparator()
         menu.addAction("Quit Voice Loop", window.quit_app)

@@ -21,6 +21,7 @@ function render(result) {
   $("call-detail").textContent = call ? "Follow this call in your Voice Loop floating controls." : "Zoho Cliq calls and Google Meet meetings appear in your floating controls.";
   $("call-provider").textContent = providerNames[call?.provider] || "";
   $("call-state").textContent = stateNames[call?.state] || "";
+  $("profile-id").textContent = paired ? `Profile · ${result.profileId || "Reopen the extension to initialize"}` : "";
 }
 async function refresh(check = false) { render(await send({type: "status", check})); }
 $("pair-form").addEventListener("submit", async event => {

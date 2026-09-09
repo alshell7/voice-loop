@@ -7,8 +7,10 @@ Created and maintained by **[alshell7](https://github.com/alshell7)** · [Downlo
 Voice Loop is an open-source Python desktop app for Windows, macOS, and Linux.
 Choose your microphone and speaker, then decide whether to save each session.
 No Voice Loop account or telemetry. Optional browser detection uses an authenticated
-connection on your own computer. Audio stays local unless you
-choose OpenAI transcription or explicitly enable automatic transcription.
+connection on your own computer. Audio stays local unless you choose OpenAI
+transcription, enable automatic transcription, or activate an AI Assistant call.
+The optional assistant handles short voice objectives through your own browser
+account; optional Automation posts call summaries to allowed Cliq chats.
 
 ## Install and use
 
@@ -94,6 +96,42 @@ See [browser setup, permissions, and troubleshooting](docs/BROWSER_EXTENSION.md)
 The extension sends call state and meeting/contact metadata locally; it never
 captures browser audio or uploads recordings. Browser automation and automatic
 OpenAI transcription are separate preferences.
+
+### AI Assistant and Automation
+
+**AI Assistant** uses the official OpenAI Python SDK and Realtime audio to place
+short Cliq calls, answer allowed incoming calls, or assist a configured Google
+Meet after you join. Set an objective, model, voice, system instructions, and
+duration. Allow specific chat links and platforms, choose the paired Chrome
+profile, and set working hours or a local busy status. Call now or schedule a
+single call. Everything starts disabled, with no preconfigured recipients.
+
+The assistant requires **VoiceLoop Mic** and **VoiceLoop Speaker** in the meeting
+app. It sends only the virtual meeting-audio return to OpenAI after the call
+connects; it does not open your physical microphone. It identifies itself as AI,
+keeps to the objective, and requests hangup after thanking the person. Calls use
+your paid API account. Local history includes JSON and escaped HTML transcripts.
+
+**Automation** can post a concise summary to the original, allowed Cliq chat
+after an assistant call, or after a browser-tagged recording is transcribed.
+Recording and transcription still require their own choices. Delivery uses the
+Chrome extension's visible browser controls, with no Cliq API or Deluge. The
+global setting and each recipient's summary permission must both be enabled.
+Uncertain calls or message deliveries are not retried automatically.
+
+A bundled **MCP server** lets Codex and other MCP clients inspect status, request
+an authorized call, schedule one, read its outcome, and cancel it. Keep Voice
+Loop and the paired Chrome profile running; schedules more than 120 seconds
+late expire. Normal Quit allows up to eight seconds for hangup and saving the
+assistant result. The extension handles Cliq's Away/Busy audio-call confirmation
+for the requested chat. After updating the extension, reload it and the call page.
+
+Live Windows/Chrome Cliq testing confirmed connection and two-way audio. The
+recipient ended the tested call, and the user manually sent its generated
+summary draft. **Assistant-initiated hangup and automatic summary sending still
+need live verification.** See
+[AI Assistant setup, policies, MCP tools, and limitations](docs/AI_ASSISTANT.md)
+and the [verification record](docs/TESTING.md).
 
 Simple automatically uses the named virtual bridge when both paths are ready.
 Without virtual devices, Windows/Linux can use direct capture of your chosen
@@ -209,7 +247,7 @@ This initial detector uses 20 ms RMS windows at **−45 dBFS**, with no external
 model or network call. Music/noise above that threshold counts as activity;
 very quiet speech below it may count as silence. Silero VAD is not included yet.
 
-- Session start is **manual**. Floating and tray controls start in the selected recording mode; the main Session screen asks at each start. Login startup only opens the app in the tray, with audio off. No device-use or call-detection trigger starts recording.
+- Floating and tray controls start in the selected recording mode; the main Session screen asks at each start. Login startup opens the app with audio off. Separately enabled browser recording can start a session after a call connects. AI Assistant has its own call policies and does not create a WAV recording.
 - Routing/monitoring without recording creates no session directory and writes no audio.
 - Audio is 48 kHz, PCM16 stereo. It uses about **691 MB per hour**, split every 30 minutes to stay well below WAV's size limit.
 - Each session directory contains `session.json` and `audio-001.wav`, `audio-002.wav`, etc. Metadata describes consent, devices, channel labels, part offsets, duration, completion/error state, and timing diagnostics.
@@ -300,7 +338,7 @@ python -m PyInstaller packaging/VoiceLoop.spec --noconfirm
 Every push to `main`, including a merged pull request, starts the release workflow.
 After tests and packaging checks pass, it publishes a GitHub prerelease containing
 Windows x64 and macOS Apple Silicon/Intel installers with SHA-256 checksums.
-Tags use `v0.3.2-build.<run number>`; the application version remains `0.3.2`.
+Tags use `v<application-version>-build.<run number>`.
 These automated builds are unsigned and macOS builds are not notarized.
 See [the release guide](docs/RELEASING.md) for versioning, manual builds, and
 release troubleshooting, and [CHANGELOG.md](CHANGELOG.md) for changes.
@@ -313,6 +351,14 @@ See [docs/TESTING.md](docs/TESTING.md) for the verification record and hardware 
 src/voiceloop/
   ui.py              Native desktop controls and consent
   ui_extras.py       Floating panel, preferences, library, transcript viewer
+  assistant_ui.py    AI Assistant and Automation pages
+  assistant.py       Call policy, scheduling, ownership, and summary delivery
+  assistant_config.py Validated assistant settings and allowed targets
+  assistant_store.py Durable local job and participant journal
+  assistant_audio.py Isolated virtual meeting input and assistant output
+  realtime.py        OpenAI SDK Realtime sessions and text summaries
+  assistant_mcp.py   Stdio MCP tools for local clients
+  assistant_control.py Separate authenticated local MCP control listener
   desktop.py         Tray controls and single-instance guard
   startup.py         Per-user login startup
   devices.py         Device discovery and route validation
@@ -333,10 +379,11 @@ src/voiceloop/
   config.py          Atomic local settings
 ```
 
-The runtime dependencies are PySide6 Essentials (native Qt widgets), NumPy,
-SoundCard/CFFI, and keyring for OS credentials. OpenAI requests use Python's
-standard HTTPS library. Multiple small audio processes trade some memory for
-driver isolation; no Electron/browser runtime or background server is involved.
+The runtime dependencies include PySide6 Essentials (native Qt widgets), NumPy,
+SoundCard/CFFI, keyring for OS credentials, the official OpenAI Python SDK, the
+MCP Python SDK, and time-zone data. Multiple small audio processes provide driver
+isolation. The app uses the user's Chrome through a companion extension rather
+than embedding a browser runtime; its optional control listeners are local only.
 
 ## Contributing
 

@@ -11,6 +11,7 @@ def main() -> int:
         "--background", action="store_true", help="Start in the tray with audio off"
     )
     commands = parser.add_subparsers(dest="command")
+    commands.add_parser("mcp", help="Run the Voice Loop MCP server over standard input/output")
     devices = commands.add_parser("devices", help="List native audio devices as JSON")
     devices.add_argument(
         "--output", help="Save device JSON to a file (also works in packaged apps)"
@@ -36,7 +37,11 @@ def main() -> int:
     )
     args = parser.parse_args()
     try:
-        if args.command == "devices":
+        if args.command == "mcp":
+            from voiceloop.assistant_mcp import main as mcp_main
+
+            mcp_main()
+        elif args.command == "devices":
             from voiceloop.devices import discover
 
             device_json = json.dumps(discover().to_dict(), indent=2, ensure_ascii=False)

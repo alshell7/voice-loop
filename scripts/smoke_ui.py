@@ -18,9 +18,15 @@ def main():
     args = parser.parse_args()
     args.screenshots.mkdir(parents=True, exist_ok=True)
     qt = create_application()
-    with tempfile.TemporaryDirectory(prefix="voiceloop-ui-") as directory:
+    with (
+        tempfile.TemporaryDirectory(prefix="voiceloop-ui-") as directory,
+        tempfile.TemporaryDirectory(prefix="voiceloop-assistant-check-") as assistant_directory,
+    ):
         with patch.object(Settings, "save"):
-            app = App(settings=Settings(recording_directory=directory))
+            app = App(
+                settings=Settings(recording_directory=directory),
+                assistant_directory=assistant_directory,
+            )
             app.show()
             for width, height, level, page, name in (
                 (1060, 820, 0, 0, "desktop-simple"),

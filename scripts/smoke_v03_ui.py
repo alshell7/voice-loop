@@ -86,6 +86,7 @@ def main():
                     contact_name="Maya Shah",
                 ),
                 contacts=contacts,
+                assistant_directory=root / "assistant",
             )
             app.show()
             app.show_floating()

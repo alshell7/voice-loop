@@ -1,6 +1,7 @@
 """Floating controls, preferences, searchable library, and session reader."""
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
@@ -32,6 +33,40 @@ from voiceloop.library import TOOLS, SessionLibrary, audio_parts, update_metadat
 from voiceloop.openai_stt import MODELS
 from voiceloop.transcript_html import render_transcript, save_html, timecode
 from voiceloop.ui import card, icon, label
+
+MICROPHONE_MUTE_HELP = (
+    "Mute VoiceLoop's microphone feed and local microphone recording. In Direct capture, "
+    "also mute your meeting app's physical microphone."
+)
+
+
+def assistant_call_display(assistant):
+    """Only connected assistant audio owns an elapsed timer; setup is not a call."""
+    try:
+        job = assistant.store.get(assistant.active_id)
+    except (ValueError, OSError):
+        return "AI Assistant · preparing…", 0
+    state = job.get("state", "")
+    if job.get("browser_ended") or state in {"cancelled", "completed", "failed", "interrupted"}:
+        return "AI Assistant · stopping…", 0
+    if state == "active":
+        duration = 0
+        try:
+            started = datetime.fromisoformat(job.get("started_at", ""))
+            if started.tzinfo is not None and started.utcoffset() is not None:
+                duration = max(0, (assistant.now() - started).total_seconds())
+        except (ValueError, TypeError, OverflowError):
+            pass
+        return "AI Assistant · on call", duration
+    if state == "waiting":
+        if job.get("action") == "answer":
+            return "AI Assistant · answering…", 0
+        if job.get("browser_state") == "ringing":
+            return "AI Assistant · ringing…", 0
+        if job.get("browser_state") == "dialing":
+            return "AI Assistant · calling…", 0
+        return "AI Assistant · waiting for answer…", 0
+    return "AI Assistant · preparing…", 0
 
 
 def search_combo(name, values, placeholder):
@@ -151,9 +186,7 @@ class FloatingControls(QWidget):
         controls.addWidget(self.power)
         self.mute = QPushButton(icon("mic", size=17), "Mute")
         self.mute.setCheckable(True)
-        self.mute.setToolTip(
-            "Mute VoiceLoop's microphone feed and local microphone recording. In Direct capture, also mute your meeting app's physical microphone."
-        )
+        self.mute.setToolTip(MICROPHONE_MUTE_HELP)
         self.mute.clicked.connect(app.toggle_mute)
         controls.addWidget(self.mute)
         body.addLayout(controls)
@@ -240,7 +273,10 @@ class FloatingControls(QWidget):
             self.save_tags()
 
     def toggle_power(self):
-        if self.app.engine.active:
+        if self.app.assistant.active:
+            self.app.assistant.cancel(self.app.assistant.active_id)
+            self.refresh()
+        elif self.app.engine.active:
             self.app.stop_session()
         else:
             self.save_tags()
@@ -295,7 +331,8 @@ class FloatingControls(QWidget):
 
     def refresh(self):
         engine = self.app.engine
-        active = engine.active
+        assistant_active = self.app.assistant.active
+        active = engine.active or assistant_active
         self.mode.setEnabled(not active and not self.app.install_future)
         self.tool.setEnabled(not active)
         self.contact.setEnabled(not active)
@@ -305,8 +342,8 @@ class FloatingControls(QWidget):
         self.mute.setChecked(engine.muted)
         self.mute.setText("Unmute" if engine.muted else "Mute")
         self.mute.setIcon(icon("muted" if engine.muted else "mic", size=17))
+        self.mute.setEnabled(not assistant_active)
         duration = engine.duration if engine.state == "running" else 0
-        self.elapsed.setText(timecode(duration)[3:] if duration < 3600 else timecode(duration))
         title = {
             "idle": "Off · ready when you are",
             "starting": "Opening audio…",
@@ -315,6 +352,12 @@ class FloatingControls(QWidget):
         }.get(engine.state, "Recording locally" if engine.recording else "On · routing only")
         if active and engine.muted:
             title = "Mic muted · " + ("recording" if engine.recording else "routing")
+        if assistant_active:
+            title, duration = assistant_call_display(self.app.assistant)
+            self.mute.setToolTip("Your physical microphone is not used during an AI call.")
+        else:
+            self.mute.setToolTip(MICROPHONE_MUTE_HELP)
+        self.elapsed.setText(timecode(duration)[3:] if duration < 3600 else timecode(duration))
         self.state.setText(title)
         folder = str(self.app.settings.recordings)
         self.storage.setText("Storage · " + folder)
@@ -783,10 +826,11 @@ class LibraryPanel(QWidget):
     def update_actions(self):
         session = self.selected()
         usable = bool(session and session.status != "recording")
-        self.play_button.setEnabled(usable and not self.app.engine.active)
+        live_audio = self.app.engine.active or self.app.assistant.active
+        self.play_button.setEnabled(usable and not live_audio)
         self.play_button.setToolTip(
-            "Stop the live session before playback."
-            if self.app.engine.active
+            "Stop the live session or AI Assistant call before playback."
+            if live_audio
             else "Play through your selected physical speaker."
         )
         self.view_button.setEnabled(bool(session))
@@ -921,16 +965,15 @@ class SessionDialog(QDialog):
             self.status.setText(str(exc))
 
     def toggle_play(self):
+        if self.app.engine.active or self.app.assistant.active:
+            self.stop_playback()
+            self.status.setText("Turn off the live session or AI Assistant call before playback.")
+            return
         if self.player:
             if self.player.paused.is_set():
                 self.player.paused.clear()
             else:
                 self.player.paused.set()
-            return
-        if self.app.engine.active:
-            self.status.setText(
-                "Turn off the live session before playback, so this audio is not recorded again."
-            )
             return
         try:
             from voiceloop.playback import Player
@@ -968,7 +1011,11 @@ class SessionDialog(QDialog):
                 pass
 
     def tick(self):
-        self.play_button.setEnabled(not self.app.engine.active)
+        live_audio = self.app.engine.active or self.app.assistant.active
+        self.play_button.setEnabled(not live_audio)
+        if live_audio and self.player:
+            self.stop_playback()
+            self.status.setText("Playback stopped for the live session or AI Assistant call.")
         if self.player:
             if not self.position.isSliderDown():
                 self.position.setValue(int(self.player.position.value / 48))

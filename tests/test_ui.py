@@ -276,6 +276,145 @@ def test_turn_off_resets_both_timers_without_losing_recorded_duration(app, qt):
     assert app.engine.duration == 123
 
 
+def assistant_controls(app, monkeypatch, job):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    app.timer.stop()
+    app.assistant.close()
+    cancelled = []
+
+    def cancel(job_id):
+        cancelled.append(job_id)
+        job["state"] = "cancelled"
+
+    assistant = SimpleNamespace(
+        active=True,
+        active_id="control-test",
+        store=SimpleNamespace(get=lambda _job_id: job),
+        now=lambda: datetime(2026, 9, 9, 10, 2, 3, tzinfo=UTC),
+        cancel=cancel,
+        close=lambda: None,
+        begin_shutdown=lambda: None,
+        shutdown_ready=lambda: True,
+        cancelled=cancelled,
+    )
+    monkeypatch.setattr(app, "assistant", assistant)
+    return assistant
+
+
+def test_assistant_floating_lifecycle_timer_and_mute_tooltip(app, monkeypatch):
+    job = {"state": "preparing", "started_at": "2026-09-09T10:00:00+00:00", "action": "call"}
+    assistant = assistant_controls(app, monkeypatch, job)
+    app.engine.duration = 987
+    app.show_floating()
+    floating = app.floating
+    assert "preparing" in floating.state.text()
+    assert floating.elapsed.text() == "00:00"
+    assert not floating.mute.isEnabled()
+    assert "not used during an AI call" in floating.mute.toolTip()
+
+    job.update(state="waiting", browser_state="dialing")
+    floating.refresh()
+    assert "calling" in floating.state.text() and floating.elapsed.text() == "00:00"
+    job["browser_state"] = "ringing"
+    floating.refresh()
+    assert "ringing" in floating.state.text() and floating.elapsed.text() == "00:00"
+    job["state"] = "active"
+    floating.refresh()
+    assert "on call" in floating.state.text() and floating.elapsed.text() == "02:03"
+
+    floating.power.click()
+    assert assistant.cancelled == ["control-test"]
+    assert "stopping" in floating.state.text()
+    assert floating.elapsed.text() == "00:00"
+    assistant.active = False
+    assistant.active_id = ""
+    floating.refresh()
+    assert floating.state.text().startswith("Off")
+    assert floating.elapsed.text() == "00:00"
+    assert floating.mute.isEnabled()
+    assert "Direct capture" in floating.mute.toolTip()
+
+
+@pytest.mark.parametrize(
+    "started_at", ("", "invalid", "2026-09-09T10:00:00", "2026-09-10T10:00:00+00:00")
+)
+def test_assistant_floating_invalid_or_future_time_is_zero(app, monkeypatch, started_at):
+    assistant_controls(app, monkeypatch, {"state": "active", "started_at": started_at})
+    app.show_floating()
+    assert app.floating.elapsed.text() == "00:00"
+
+
+def test_assistant_floating_resets_after_browser_end(app, monkeypatch):
+    assistant_controls(
+        app,
+        monkeypatch,
+        {
+            "state": "active",
+            "started_at": "2026-09-09T10:00:00+00:00",
+            "browser_ended": True,
+        },
+    )
+    app.show_floating()
+    assert "stopping" in app.floating.state.text()
+    assert app.floating.elapsed.text() == "00:00"
+
+
+def test_assistant_blocks_library_and_direct_viewer_playback(app, tmp_path, qt, monkeypatch):
+    import numpy as np
+
+    from voiceloop.recording import Recording
+
+    assistant_controls(app, monkeypatch, {"state": "preparing"})
+    recording = Recording(tmp_path, {}, metadata={"tool": "Zoho Cliq", "contact": "Alex"})
+    recording.write(np.zeros((4800, 2)))
+    recording.close()
+    app.refresh_library()
+    assert not app.library_panel.play_button.isEnabled()
+    assert "AI Assistant" in app.library_panel.play_button.toolTip()
+    app.library_panel.open()
+    qt.processEvents()
+    viewer = app.dialogs[-1]
+    viewer.toggle_play()
+    assert viewer.player is None
+    assert "AI Assistant" in viewer.status.text()
+    viewer.tick()
+    assert not viewer.play_button.isEnabled()
+    viewer.close()
+
+
+@pytest.mark.parametrize("action", ("tick", "toggle_play"))
+def test_assistant_stops_existing_or_paused_playback(app, tmp_path, monkeypatch, action):
+    import threading
+    from types import SimpleNamespace
+
+    from voiceloop.config import atomic_json
+    from voiceloop.ui_extras import SessionDialog
+
+    assistant_controls(app, monkeypatch, {"state": "active"})
+    atomic_json(tmp_path / "session.json", {"duration_seconds": 30, "status": "complete"})
+    viewer = SessionDialog(app, tmp_path)
+    viewer.timer.stop()
+    closed = []
+    paused = threading.Event()
+    if action == "toggle_play":
+        paused.set()
+    viewer.player = SimpleNamespace(
+        close=lambda: closed.append(True),
+        paused=paused,
+        position=SimpleNamespace(value=96000),
+        poll=lambda: None,
+    )
+    getattr(viewer, action)()
+    assert closed == [True]
+    assert viewer.player is None
+    assert "AI Assistant" in viewer.status.text()
+    if action == "toggle_play":
+        assert paused.is_set(), "The guarded Play action must not resume paused audio."
+    viewer.close()
+
+
 def quiet_session(app):
     import numpy as np
 
@@ -337,7 +476,7 @@ def test_resuming_speaker_activity_dismisses_prompt(app):
 def test_tray_icon_follows_activity_mute_and_off(app):
     from voiceloop.desktop import enable_desktop, update_tray_status
 
-    enable_desktop(app, register_startup=False)
+    enable_desktop(app, register_startup=False, assistant_control=False)
     app.tray_timer.stop()
     icons = [app.tray.icon().cacheKey()]
     assert app.tray_state == "off"

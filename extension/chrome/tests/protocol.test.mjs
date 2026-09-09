@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {normalizeEvent, queueLatest, pendingFresh, providerForUrl} from "../protocol.mjs";
+import {normalizeEvent, queueLatest, pendingFresh, providerForUrl, normalizeCommand, chatTarget} from "../protocol.mjs";
 const now = Date.parse("2026-09-08T12:00:00Z");
 const event = {version: 1, event_id: "event-1", call_id: "call-1", provider: "zoho_cliq", state: "dialing", direction: "outgoing", contact: {name: "Test Contact"}, title: "Test call", url: "https://untrusted.example", timestamp: new Date(now).toISOString()};
 test("worker derives provider and safe URL from browser-authenticated sender", () => {
@@ -34,4 +34,24 @@ test("queue isolates concurrent calls and bounds memory", () => {
   for (let i = 0; i < 40; i++) queue = queueLatest(queue, {...event, call_id: `call-${i}`}, now);
   assert.equal(queue.length, 30);
   assert.equal(queue[0].event.call_id, "call-10");
+});
+test("command protocol permits only current exact-profile actions and targets", () => {
+  const command = {version: 1, command_id: "cmd-1", profile_id: "profile-1", action: "call", provider: "zoho_cliq", chat_id: "12345", chat_url: "https://cliq.zoho.com/company/987/chats/12345", call_id: "", text: "", expires_at: new Date(now + 45000).toISOString()};
+  assert.equal(normalizeCommand(command, "profile-1", now).chat_id, "12345");
+  for (const patch of [{action: "evaluate"}, {action: "answer"}, {profile_id: "profile-2"}, {chat_id: "99999"}, {chat_url: "javascript:alert(1)"}, {chat_url: command.chat_url + "?token=secret"}, {expires_at: new Date(now - 1).toISOString()}, {expires_at: new Date(now + 122000).toISOString()}, {text: "x".repeat(4001)}, {action: "send_summary", text: ""}]) {
+    assert.equal(normalizeCommand({...command, ...patch}, "profile-1", now), null);
+  }
+  assert.equal(normalizeCommand({...command, action: "hangup", provider: "google_meet", call_id: "meet-call", chat_id: "", chat_url: ""}, "profile-1", now).action, "hangup");
+  assert.equal(chatTarget("https://user@cliq.zoho.com/company/987/chats/12345", "12345"), null);
+});
+test("optional event chat identity cannot cross origin or forge worker correlation", () => {
+  const result = normalizeEvent({...event, chat_id: "12345", chat_url: "https://cliq.zoho.com/company/987/chats/12345", profile_id: "fake-profile", command_id: "fake-command"}, "https://cliq.zoho.com/", now);
+  assert.equal(result.chat_id, "12345"); assert.equal(result.profile_id, undefined); assert.equal(result.command_id, undefined);
+  assert.equal(normalizeEvent({...event, chat_id: "12345", chat_url: "https://cliq.zoho.eu/company/987/chats/12345"}, "https://cliq.zoho.com/", now).chat_id, undefined);
+});
+test("diagnostic terminal event ID prefixes retain protocol v1 compatibility", () => {
+  for (const reason of ["native-handoff", "native-replaced", "ui-ended", "ui-absent", "pagehide", "tab-closed", "tab-missing", "navigation", "unpaired"]) {
+    const id = `${reason}-11111111-2222-3333-4444-555555555555`;
+    assert.equal(normalizeEvent({...event, state: "ended", event_id: id}, "https://cliq.zoho.com/", now).event_id, id);
+  }
 });

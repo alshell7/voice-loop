@@ -124,7 +124,12 @@ def test_unanswered_calls_never_prompt_or_record(app, direction, state):
 
 
 def test_connected_call_asks_without_blocking_and_saves_full_metadata(app):
-    current = event(direction="outgoing")
+    current = replace(
+        event(direction="outgoing"),
+        profile_id="work",
+        chat_id="456",
+        chat_url="https://cliq.zoho.com/company/123/chats/456",
+    )
     deliver(app, current)
     prompt = app.browser_prompt
     assert prompt is not None and prompt.isVisible()
@@ -141,6 +146,9 @@ def test_connected_call_asks_without_blocking_and_saves_full_metadata(app):
         "call_direction": "outgoing",
         "browser_call_id": current.call_id,
         "browser_url": current.url,
+        "browser_profile_id": current.profile_id,
+        "browser_chat_id": current.chat_id,
+        "browser_chat_url": current.chat_url,
         "recording_trigger": "browser_prompt",
     }
     assert app.contacts.names() == [current.contact_name]

@@ -37,7 +37,11 @@ def main():
         for name in ("Anna Lee", "Maya Shah", "Sam Reed"):
             contacts.remember(name)
         with patch.object(Settings, "save"):
-            app = App(settings=Settings(recording_directory=str(root)), contacts=contacts)
+            app = App(
+                settings=Settings(recording_directory=str(root)),
+                contacts=contacts,
+                assistant_directory=root / "assistant",
+            )
             app.show_floating()
             for name, combo in (("tool", app.floating.tool), ("contact", app.floating.contact)):
                 edit = combo.lineEdit()

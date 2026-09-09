@@ -24,6 +24,9 @@ settings.json
 browser-pairing.json
 browser_bridge.json
 browser-pairing-token
+assistant-control-token
+assistant.json
+assistant-jobs.sqlite3*
 node_modules/
 transcript*.json
 *.mp3

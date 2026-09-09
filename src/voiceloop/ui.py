@@ -270,6 +270,7 @@ class App(QMainWindow):
         engine=None,
         contacts=None,
         browser_bridge=None,
+        assistant_directory=None,
     ):
         super().__init__()
         self.settings = settings or Settings.load()
@@ -308,6 +309,19 @@ class App(QMainWindow):
         self.resize(1060, 820)
         self.setMinimumSize(820, 640)
         self.capture_protection = CaptureProtection(self, self.settings.capture_protection)
+        from voiceloop.assistant import AssistantService
+
+        self.assistant = AssistantService(
+            bridge_provider=lambda: self.browser_bridge,
+            audio_factory=self.assistant_audio,
+            audio_busy=lambda: self.engine.active or self.install_future is not None,
+            audio_ready=self.assistant_audio_ready,
+            recordings=lambda: self.settings.recordings,
+            directory=assistant_directory,
+        )
+        self.assistant_control = None
+        self._assistant_refresh = 0.0
+        self._assistant_shutdown_deadline = 0.0
         self._build()
         self.refresh_devices()
         self.refresh_library()
@@ -344,6 +358,8 @@ class App(QMainWindow):
                 ("Audio setup", "devices"),
                 ("Recordings", "folder"),
                 ("Preferences", "settings"),
+                ("AI Assistant", "session"),
+                ("Automation", "refresh"),
             )
         ):
             button = QPushButton(icon(glyph), name)
@@ -383,6 +399,8 @@ class App(QMainWindow):
             self._setup_page,
             self._library_page,
             self._preferences_page,
+            self._assistant_page,
+            self._automation_page,
         ):
             page = QWidget()
             page.setObjectName("workspace")
@@ -402,6 +420,44 @@ class App(QMainWindow):
         main.addWidget(self.pages, 1)
         self._transport(main)
         horizontal.addLayout(main, 1)
+
+    def assistant_audio_ready(self):
+        return bridge_endpoints(self.devices) is not None and any(
+            d.id == self.settings.speaker_id and not is_virtual(d) for d in self.devices.outputs
+        )
+
+    def assistant_audio(self):
+        from voiceloop.assistant_audio import CableAudio
+
+        endpoints = bridge_endpoints(self.devices)
+        if endpoints is None:
+            raise ValueError("Install VoiceLoop Mic and VoiceLoop Speaker in Audio setup first.")
+        speaker = next((d for d in self.devices.outputs if d.id == self.settings.speaker_id), None)
+        if speaker is None or is_virtual(speaker):
+            raise ValueError("Choose your physical speaker in Session first.")
+        return CableAudio(endpoints.meeting_source, endpoints.microphone_feed, monitor=speaker)
+
+    def _assistant_page(self, layout):
+        from voiceloop.assistant_ui import AssistantPage
+
+        self.assistant_page = AssistantPage(self.assistant, self)
+        layout.addWidget(self.assistant_page)
+
+    def _automation_page(self, layout):
+        from voiceloop.assistant_ui import AutomationPage
+
+        self.automation_page = AutomationPage(self.assistant, self)
+        layout.addWidget(self.automation_page)
+
+    def enable_assistant(self):
+        from voiceloop.assistant_control import ControlServer
+
+        self.assistant.runtime_enabled = True
+        try:
+            self.assistant_control = ControlServer(self.assistant)
+            self.assistant_control.start()
+        except OSError:
+            self.assistant.status = "MCP control port is busy. Close another Voice Loop instance."
 
     def _session_page(self, layout):
         panel, content = card()
@@ -656,15 +712,21 @@ class App(QMainWindow):
 
     def navigate(self, index):
         self.pages.setCurrentIndex(index)
-        self.transport.setVisible(index != 2)
+        self.transport.setVisible(index not in (2, 4, 5))
         self.nav_buttons[index].setChecked(True)
-        self.page_title.setText(("Session", "Audio setup", "Recordings", "Preferences")[index])
+        self.page_title.setText(
+            ("Session", "Audio setup", "Recordings", "Preferences", "AI Assistant", "Automation")[
+                index
+            ]
+        )
         self.page_subtitle.setText(
             (
                 "Good notes start with clear audio.",
                 "Connect once. Keep every meeting simple.",
                 "Your conversations, kept locally.",
                 "Make Voice Loop fit your day.",
+                "A brief conversation. A clear outcome.",
+                "Keep the right people up to date.",
             )[index]
         )
 
@@ -802,7 +864,7 @@ class App(QMainWindow):
         return config
 
     def start(self, _checked=False, *, record=None, browser_event=None):
-        if self.closing or self.engine.active or self.install_future:
+        if self.closing or self.engine.active or self.install_future or self.assistant.active:
             return False
         try:
             if self.floating and browser_event is None:
@@ -815,7 +877,12 @@ class App(QMainWindow):
                 # event loop. A connected call may already own a new session.
                 # Preserve its ownership and metadata instead of resuming the
                 # stale manual start after consent closes.
-                if self.closing or self.engine.active or self.install_future:
+                if (
+                    self.closing
+                    or self.engine.active
+                    or self.install_future
+                    or self.assistant.active
+                ):
                     return False
                 if dialog.choice is None:
                     return False
@@ -844,6 +911,9 @@ class App(QMainWindow):
                     "call_direction": event.direction,
                     "browser_call_id": event.call_id,
                     "browser_url": event.url,
+                    "browser_profile_id": event.profile_id,
+                    "browser_chat_id": event.chat_id,
+                    "browser_chat_url": self.assistant.event_chat_url(event),
                     "recording_trigger": (
                         "browser_auto_record"
                         if self.settings.browser_auto_record
@@ -904,7 +974,7 @@ class App(QMainWindow):
             return False
 
     def update_enabled(self):
-        active = self.engine.active or self.install_future is not None
+        active = self.engine.active or self.install_future is not None or self.assistant.active
         for control in self.device_controls + self.level_group.buttons():
             control.setEnabled(not active)
         for button in (
@@ -994,6 +1064,19 @@ class App(QMainWindow):
         # Finish bookkeeping for the prior recording before a browser event can
         # start the next one and replace the engine's saved path or error.
         self.tick_browser()
+        self.assistant.tick()
+        if self._assistant_shutdown_deadline:
+            if (
+                self.assistant.shutdown_ready()
+                or time.monotonic() >= self._assistant_shutdown_deadline
+            ):
+                self.close()
+                return
+        if time.monotonic() - self._assistant_refresh > 1:
+            self._assistant_refresh = time.monotonic()
+            self.assistant_page.refresh()
+            self.automation_page.refresh()
+            self.update_enabled()
         self.tick_transcription()
         if self.install_future and self.install_future.done():
             future, self.install_future = self.install_future, None
@@ -1095,6 +1178,10 @@ class App(QMainWindow):
         self.save_preferences()
 
     def tick_browser(self):
+        if self.closing and self._assistant_shutdown_deadline and self.browser_bridge is not None:
+            for event in self.browser_bridge.drain(limit=128):
+                self.assistant.handle_event(event)
+            return
         if (
             self.closing
             or not self.settings.browser_detection_enabled
@@ -1133,6 +1220,9 @@ class App(QMainWindow):
                 # Ended events still reach the controller as terminal evidence.
                 self.browser_feedback = "Browser call update expired · waiting for Chrome"
                 continue
+            if self.assistant.handle_event(event):
+                self.browser_feedback = self.assistant.status
+                continue
             if self._browser_finishing and event.state == "connected":
                 if len(self._browser_deferred_events) < 64:
                     self._browser_deferred_events[key] = event
@@ -1140,7 +1230,10 @@ class App(QMainWindow):
                 continue
             self.apply_browser_actions(
                 self.browser_controller.handle(
-                    event, session_active=self.engine.active or self.install_future is not None
+                    event,
+                    session_active=self.engine.active
+                    or self.install_future is not None
+                    or self.assistant.active,
                 )
             )
         self.apply_browser_actions(self.browser_controller.tick())
@@ -1414,6 +1507,7 @@ class App(QMainWindow):
                     else "Transcript saved. Select View transcript to read it."
                 )
                 if kind == "complete":
+                    self.assistant.recording_transcribed(self.job.directory)
                     self.refresh_library()
                     for viewer in self.dialogs:
                         if viewer.directory.resolve() == self.job.directory:
@@ -1473,6 +1567,7 @@ class App(QMainWindow):
         import os
 
         self.closing = True
+        self.assistant.close()
         self.dismiss_browser_prompt()
         self.cancel_transcription()
         for viewer in list(self.dialogs):
@@ -1513,7 +1608,24 @@ class App(QMainWindow):
                 self.engine.stop()
             event.ignore()
             return
+        if not self._assistant_shutdown_deadline:
+            self.assistant.begin_shutdown()
+            if not self.assistant.shutdown_ready():
+                self.closing = True
+                self._assistant_shutdown_deadline = time.monotonic() + 8
+                self.status.setText("Ending the AI call before closing…")
+                event.ignore()
+                return
+        elif (
+            not self.assistant.shutdown_ready()
+            and time.monotonic() < self._assistant_shutdown_deadline
+        ):
+            event.ignore()
+            return
         self.executor.shutdown(wait=False)
+        if self.assistant_control:
+            self.assistant_control.stop()
+        self.assistant.close()
         self.dismiss_browser_prompt()
         if self.browser_bridge is not None:
             self.browser_bridge.stop()
