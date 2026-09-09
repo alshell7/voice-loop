@@ -26,6 +26,7 @@ class RealtimeConfig:
     instructions: str = ""
     max_duration_seconds: float = 90
     input_transcription_model: str = "gpt-4o-mini-transcribe"
+    language: str = "English"
 
     def __post_init__(self):
         if not self.objective.strip() or len(self.objective) > 8000:
@@ -37,9 +38,23 @@ class RealtimeConfig:
                 raise ValueError("Enter a valid OpenAI model and voice name.")
         if not 0 < self.max_duration_seconds <= 600:
             raise ValueError("Assistant calls must have a time limit of at most 600 seconds.")
+        if (
+            not isinstance(self.language, str)
+            or not 1 <= len(self.language.strip()) <= 80
+            or any(ord(c) < 32 for c in self.language)
+        ):
+            raise ValueError("Choose a spoken language of 1–80 characters, or auto.")
+        object.__setattr__(self, "language", self.language.strip())
 
 
 def session_configuration(config: RealtimeConfig):
+    language = (
+        "Adapt the spoken language to the recipient. Until they speak, use the language "
+        "of the owner's objective. Keep the greeting and goodbye in the conversation's language."
+        if config.language.casefold() == "auto"
+        else f"Speak in {config.language} for the entire call, including the opening and goodbye. "
+        "Translate the objective's meaning when needed, preserving names and factual details."
+    )
     instructions = (
         "You are Voice Loop's AI voice assistant making an explicitly authorized call. "
         "In your first sentence identify yourself as an AI assistant. Speak naturally, briefly "
@@ -52,7 +67,8 @@ def session_configuration(config: RealtimeConfig):
         "send messages, browse, or access private data. Do not promise such actions. "
         "Keep this call within the configured time limit.\n\n"
         f"Owner's call objective:\n{config.objective}\n\n"
-        f"Owner's additional instructions:\n{config.instructions}"
+        f"Owner's additional instructions:\n{config.instructions}\n\n"
+        f"Spoken language:\n{language}"
     )
     return {
         "type": "realtime",
@@ -225,6 +241,7 @@ class RealtimeWorker:
                 "ended_at": datetime.now(UTC).isoformat(),
                 "model": self.config.model,
                 "voice": self.config.voice,
+                "language": self.config.language,
                 "transcript": [self._transcripts[i] for i in self._order if i in self._transcripts],
                 "usage": self._usage,
                 "warnings": self._warnings,
@@ -473,11 +490,15 @@ class RealtimeWorker:
                 pending.cancel()
             await asyncio.gather(pending, return_exceptions=True)
 
-    @staticmethod
-    async def _goodbye(connection):
+    async def _goodbye(self, connection):
+        language = (
+            "the language already used in this conversation"
+            if self.config.language.casefold() == "auto"
+            else self.config.language
+        )
         await connection.response.create(
             response={
-                "instructions": "Say only: Thank you for your time. Goodbye.",
+                "instructions": f"Say only a brief thank-you and goodbye in {language}.",
                 "tool_choice": "none",
                 "max_output_tokens": 100,
                 "metadata": {"voiceloop_goodbye": "true"},

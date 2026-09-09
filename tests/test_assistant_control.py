@@ -21,24 +21,32 @@ class Service:
             get=lambda job_id: next(j for j in self.jobs if j["id"] == job_id)
         )
         self.config = SimpleNamespace(
+            cliq_company_id="123456",
+            cliq_origin="https://cliq.zoho.com",
+            language="English",
             targets=[
                 SimpleNamespace(
                     id="42", name="Test Contact", url="https://example.test", enabled=True
                 )
-            ]
+            ],
         )
 
     def snapshot(self):
         return {"status": "idle", "jobs": self.jobs}
 
-    def trigger(self, chat_id, objective):
+    def trigger(self, chat_id, objective, *, contact_name=""):
         if self.failure:
             raise self.failure
-        self.calls.append(("call", chat_id, objective))
+        self.calls.append(
+            ("call", chat_id, objective, contact_name)
+            if contact_name
+            else ("call", chat_id, objective)
+        )
         return {"id": "job-1", "state": "queued"}
 
-    def schedule(self, chat_id, objective, when):
-        self.calls.append(("schedule", chat_id, objective, when))
+    def schedule(self, chat_id, objective, when, *, contact_name=""):
+        call = ("schedule", chat_id, objective, when)
+        self.calls.append((*call, contact_name) if contact_name else call)
         return {"id": "job-2", "state": "scheduled"}
 
     def cancel(self, job_id):
@@ -79,6 +87,8 @@ def test_control_loopback_status_and_operations(control):
     status, headers, body = request(control)
     assert status == 200
     assert json.loads(body)["targets"][0]["id"] == "42"
+    assert json.loads(body)["cliq"] == {"company_id": "123456", "origin": "https://cliq.zoho.com"}
+    assert json.loads(body)["language"] == "English"
     assert headers["Cache-Control"] == "no-store"
     assert not any(name.lower().startswith("access-control") for name in headers)
     assert request(control, "/v1/call", {"chat_id": "42", "objective": "Audio test"})[0] == 200
@@ -96,6 +106,42 @@ def test_control_loopback_status_and_operations(control):
         ("schedule", "42", "Reminder", datetime.fromisoformat("2026-10-01T09:00:00+05:30")),
         ("cancel", "job-1"),
     ]
+
+
+@pytest.mark.parametrize("operation", ["call", "schedule"])
+def test_new_chat_contact_name_is_forwarded_to_desktop_policy(control, operation):
+    data = {
+        "chat_id": "987654321",
+        "objective": "Confirm the appointment",
+        "contact_name": "  Zoë Ahmed  ",
+    }
+    if operation == "schedule":
+        data["when"] = "2026-10-01T09:00:00+05:30"
+    assert request(control, "/v1/" + operation, data)[0] == 200
+    action = control.service.calls[0]
+    assert action[:3] == (operation, data["chat_id"], data["objective"])
+    assert action[-1] == "Zoë Ahmed"
+    assert len(control.service.config.targets) == 1
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"contact_name": 42},
+        {"contact_name": "x" * 121},
+        {"contact_name": "First\nSecond"},
+        {"contact_name": "First\x00Second"},
+        {"chat_id": "../42"},
+        {"chat_id": 42},
+        {"chat_id": "٤٢"},
+        {"objective": {}},
+        {"objective": " "},
+    ],
+)
+def test_invalid_new_chat_request_never_reaches_desktop(control, fields):
+    data = {"chat_id": "42", "objective": "Audio test", **fields}
+    assert request(control, "/v1/call", data)[0] == 400
+    assert not control.service.calls
 
 
 def test_status_is_compact_and_job_transcripts_are_paginated(control):
@@ -147,6 +193,16 @@ def test_control_secret_is_separate_and_persists(tmp_path):
     assert server.token != pairing_token(tmp_path / "browser-token")
     if os.name != "nt":
         assert (tmp_path / "control-token").stat().st_mode & 0o777 == 0o600
+
+
+def test_live_control_listener_retains_exclusive_port_ownership(control, tmp_path):
+    other = ControlServer(Service(), port=control.port, token_path=tmp_path / "other-token")
+    try:
+        with pytest.raises(OSError):
+            other.start()
+        assert request(control)[0] == 200
+    finally:
+        other.stop()
 
 
 @pytest.mark.parametrize(

@@ -5,7 +5,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtTest import QTest
 from test_setup import hardware
 
@@ -27,6 +27,7 @@ def app(qt, tmp_path, monkeypatch):
         settings=Settings(recording_directory=str(tmp_path)),
         device_provider=lambda: hardware(True),
         contacts=Contacts(tmp_path / "contacts.json"),
+        assistant_directory=tmp_path / "assistant",
     )
     window.show()
     qt.processEvents()
@@ -34,6 +35,10 @@ def app(qt, tmp_path, monkeypatch):
     window.timer.stop()
     window.engine.state = "idle"
     window.close()
+    if window.floating:
+        window.floating.deleteLater()
+    window.deleteLater()
+    qt.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     qt.processEvents()
 
 

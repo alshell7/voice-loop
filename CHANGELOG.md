@@ -12,6 +12,17 @@
   chats. Leave unknown or ambiguous callers unanswered.
 - Add durable job history, cancellation, local JSON/HTML transcripts, expired
   schedules, and interrupted-call recovery without automatic redialing.
+- Search and paginate complete call and summary histories directly from SQLite,
+  including older records beyond the recent 200-job status snapshot.
+- Add visible contact management, chat-link and numeric-ID entry, a separate Cliq
+  company/region setting, and light searchable contact selectors. Open call
+  history in Recordings with a transcript and JSON viewer.
+- Configure the assistant's language, including following the caller. MCP call
+  and schedule tools accept an optional name for new outgoing-only contacts.
+- Fix immediate local-control listener restart on macOS/Linux while retaining
+  exclusive listener ownership on Windows.
+- Initialize Qt styling once, release closed transcript readers, and isolate
+  test windows and assistant storage to prevent repeated-run UI stalls.
 - Add Automation for concise summaries sent through the Chrome extension's
   browser controls. Require a per-chat opt-in; support assistant conversations
   and completed browser-tagged recordings after separate transcription consent.
@@ -25,6 +36,10 @@
   controls, reset elapsed time on stop, and prevent conflicting local playback.
 - Isolate diagnostic and smoke-test assistant storage and leave their local
   MCP listener off so verification cannot recover or interrupt real user jobs.
+- Anonymize diagnostic copies and public fixtures, and require configured contact
+  selection at runtime in local live-test helpers instead of embedded private IDs.
+- Preserve multiline summary text during composer checks and wait for the matching
+  new chat message after sending; uncertain delivery is never automatically retried.
 - Preserve the complete objective and session instructions in the Realtime
   opening response. Verify completion and output drain with a separate paid
   synthetic-audio check that does not open audio hardware or make a browser call.

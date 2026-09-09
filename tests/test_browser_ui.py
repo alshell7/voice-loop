@@ -7,7 +7,7 @@ from dataclasses import replace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtWidgets import QMessageBox
 from test_setup import hardware
 
@@ -47,6 +47,7 @@ def app(qt, tmp_path, monkeypatch):
         settings=Settings(recording_directory=str(tmp_path), browser_detection_enabled=True),
         device_provider=lambda: hardware(True),
         contacts=Contacts(tmp_path / "contacts.json"),
+        assistant_directory=tmp_path / "assistant",
         browser_bridge=FakeBridge(),
     )
     window.timer.stop()
@@ -70,6 +71,10 @@ def app(qt, tmp_path, monkeypatch):
     window.closing = True
     window.engine.state = "idle"
     window.close()
+    if window.floating:
+        window.floating.deleteLater()
+    window.deleteLater()
+    qt.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     qt.processEvents()
 
 

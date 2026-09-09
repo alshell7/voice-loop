@@ -41,6 +41,7 @@ def windows():
         if manager.owns(window):
             window.close()
     owner.deleteLater()
+    qt.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     qt.processEvents()
 
 
@@ -148,6 +149,7 @@ def test_preferences_toggle_controls_actual_app_windows_and_persists(tmp_path, m
     app = App(
         settings=Settings(recording_directory=str(tmp_path)),
         contacts=Contacts(tmp_path / "contacts.json"),
+        assistant_directory=tmp_path / "assistant",
         device_provider=lambda: Devices([], []),
     )
     backend = Backend()
@@ -171,4 +173,8 @@ def test_preferences_toggle_controls_actual_app_windows_and_persists(tmp_path, m
     finally:
         app.closing = True
         app.close()
+        if app.floating:
+            app.floating.deleteLater()
+        app.deleteLater()
+        qt.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         qt.processEvents()

@@ -103,12 +103,19 @@ class ChatTarget:
     def chat_id(self) -> str:
         return self.id if self.provider == "zoho_cliq" else ""
 
+    @property
+    def company_id(self) -> str:
+        return urlsplit(self.url).path.split("/")[2] if self.chat_id else ""
+
 
 @dataclass
 class AssistantSettings:
     enabled: bool = False
     model: str = "gpt-realtime"
     voice: str = "marin"
+    language: str = "English"
+    cliq_company_id: str = ""
+    cliq_origin: str = "https://cliq.zoho.com"
     system_instructions: str = DEFAULT_INSTRUCTIONS
     default_objective: str = ""
     max_duration_seconds: int = 90
@@ -129,6 +136,22 @@ class AssistantSettings:
     summary_instructions: str = DEFAULT_SUMMARY_INSTRUCTIONS
 
     def validate(self) -> AssistantSettings:
+        self.language = _text(self.language, "Assistant language", 80)
+        if any(ord(char) < 32 or ord(char) == 127 for char in self.language):
+            raise ValueError("Assistant language must be a single line of text.")
+        self.cliq_company_id = _text(self.cliq_company_id, "Cliq company ID", 40, empty=True)
+        if self.cliq_company_id and not re.fullmatch(r"[0-9]{1,40}", self.cliq_company_id):
+            raise ValueError("Cliq company ID must contain only digits.")
+        origin = urlsplit(_text(self.cliq_origin, "Cliq origin", 100))
+        if (
+            origin.scheme != "https"
+            or origin.netloc not in CLIQ_HOSTS
+            or origin.path not in ("", "/")
+            or origin.query
+            or origin.fragment
+        ):
+            raise ValueError("Choose a supported HTTPS Cliq regional origin without a path.")
+        self.cliq_origin = "https://" + origin.netloc
         for name in (
             "enabled",
             "busy",
@@ -194,6 +217,27 @@ class AssistantSettings:
     def target(self, target_id: str) -> ChatTarget | None:
         return next((target for target in self.targets if target.id == target_id), None)
 
+    def make_cliq_target(self, name: str, value: str, **flags) -> ChatTarget:
+        value = _text(value, "Cliq chat ID or link", 1000)
+        self.validate()
+        if re.fullmatch(r"[0-9]{1,40}", value):
+            if not self.cliq_company_id:
+                raise ValueError("Configure the Cliq company ID first, or paste a full chat link.")
+            value = f"{self.cliq_origin}/company/{self.cliq_company_id}/chats/{value}"
+        target = ChatTarget.from_url(name, value, **flags)
+        if target.provider != "zoho_cliq":
+            raise ValueError("Enter a Cliq chat ID or chat link.")
+        origin = "https://" + urlsplit(target.url).netloc
+        if self.cliq_company_id:
+            if target.company_id != self.cliq_company_id or origin != self.cliq_origin:
+                raise ValueError(
+                    "This link belongs to a different Cliq company or region. "
+                    "Update Cliq settings first."
+                )
+        else:
+            self.cliq_company_id, self.cliq_origin = target.company_id, origin
+        return target
+
     def within_working_hours(self, now: datetime) -> bool:
         if now.tzinfo is None or now.utcoffset() is None:
             raise ValueError("Working-hours checks require an aware date and time.")
@@ -238,6 +282,14 @@ class AssistantSettings:
                 else None
                 for item in values["targets"]
             ]
+        if "cliq_company_id" not in data:
+            scopes = {
+                (t.company_id, "https://" + urlsplit(t.url).netloc)
+                for t in values.get("targets", [])
+                if t and t.provider == "zoho_cliq"
+            }
+            if len(scopes) == 1:
+                values["cliq_company_id"], values["cliq_origin"] = scopes.pop()
         return cls(**values).validate()
 
     @classmethod

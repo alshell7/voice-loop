@@ -87,26 +87,26 @@ def search_combo(name, values, placeholder):
     # QCompleter owns a top-level popup, so the QComboBox descendant rule does
     # not reach it. Set every palette group as well as selection styling so a
     # dark Windows palette cannot leak into this intentionally light surface.
-    popup = combo.completer().popup()
-    popup.setAccessibleName(name + " suggestions")
-    palette = popup.palette()
-    for role, color in (
-        (QPalette.ColorRole.Base, "#FFFFFF"),
-        (QPalette.ColorRole.Window, "#FFFFFF"),
-        (QPalette.ColorRole.Text, "#20242D"),
-        (QPalette.ColorRole.WindowText, "#20242D"),
-        (QPalette.ColorRole.Highlight, "#EAF2FF"),
-        (QPalette.ColorRole.HighlightedText, "#005BC4"),
-    ):
-        palette.setColor(QPalette.ColorGroup.All, role, QColor(color))
-    popup.setPalette(palette)
-    popup.setStyleSheet(
-        "QAbstractItemView {background:#FFFFFF; color:#20242D; border:1px solid #DCE2EA;"
-        "selection-background-color:#EAF2FF; selection-color:#005BC4; padding:5px;}"
-        "QAbstractItemView::item {min-height:28px; padding:4px 8px;}"
-        "QAbstractItemView::item:selected {background:#EAF2FF; color:#005BC4;}"
-        "QAbstractItemView::item:hover {background:#F4F7FC; color:#20242D;}"
-    )
+    for popup, suffix in ((combo.completer().popup(), " suggestions"), (combo.view(), " options")):
+        popup.setAccessibleName(name + suffix)
+        palette = popup.palette()
+        for role, color in (
+            (QPalette.ColorRole.Base, "#FFFFFF"),
+            (QPalette.ColorRole.Window, "#FFFFFF"),
+            (QPalette.ColorRole.Text, "#20242D"),
+            (QPalette.ColorRole.WindowText, "#20242D"),
+            (QPalette.ColorRole.Highlight, "#EAF2FF"),
+            (QPalette.ColorRole.HighlightedText, "#005BC4"),
+        ):
+            palette.setColor(QPalette.ColorGroup.All, role, QColor(color))
+        popup.setPalette(palette)
+        popup.setStyleSheet(
+            "QAbstractItemView {background:#FFFFFF; color:#20242D; border:1px solid #DCE2EA;"
+            "selection-background-color:#EAF2FF; selection-color:#005BC4; padding:5px;}"
+            "QAbstractItemView::item {min-height:28px; padding:4px 8px;}"
+            "QAbstractItemView::item:selected {background:#EAF2FF; color:#005BC4;}"
+            "QAbstractItemView::item:hover {background:#F4F7FC; color:#20242D;}"
+        )
     return combo
 
 

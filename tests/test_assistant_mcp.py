@@ -83,6 +83,35 @@ def test_mcp_invalid_tool_arguments_never_reach_desktop():
     assert calls == []
 
 
+def test_mcp_new_chat_name_is_optional_and_forwarded_without_changing_company_policy():
+    calls = []
+
+    async def exercise():
+        def client(operation, payload=None):
+            calls.append((operation, payload))
+            return {"state": "queued"}
+
+        async with create_connected_server_and_client_session(
+            assistant_mcp.create_server(client)
+        ) as session:
+            listing = {tool.name: tool for tool in (await session.list_tools()).tools}
+            for name in ("voice_loop_call", "voice_loop_schedule"):
+                assert "contact_name" not in listing[name].inputSchema["required"]
+                assert "company_id" not in listing[name].inputSchema["properties"]
+                arguments = {
+                    "chat_id": "987654321",
+                    "objective": "Confirm the appointment",
+                    "contact_name": "Zoë Ahmed",
+                }
+                if name == "voice_loop_schedule":
+                    arguments["when"] = "2026-10-01T09:00:00+05:30"
+                result = await session.call_tool(name, arguments)
+                assert not result.isError
+                assert calls[-1] == (name.removeprefix("voice_loop_"), arguments)
+
+    asyncio.run(exercise())
+
+
 def test_real_stdio_entry_point_handshakes_without_loading_api_key_or_calling():
     async def exercise():
         source = Path(__file__).resolve().parents[1] / "src"

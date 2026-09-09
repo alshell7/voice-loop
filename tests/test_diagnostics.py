@@ -4,6 +4,8 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QEvent
+
 from voiceloop.assistant_store import AssistantStore
 from voiceloop.config import Settings
 from voiceloop.desktop import enable_desktop
@@ -48,4 +50,8 @@ def test_diagnostic_directory_and_disabled_control_preserve_user_state(tmp_path,
     finally:
         window.closing = True
         window.close()
+        if window.floating:
+            window.floating.deleteLater()
+        window.deleteLater()
+        application.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         application.processEvents()

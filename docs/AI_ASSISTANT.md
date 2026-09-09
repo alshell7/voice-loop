@@ -24,11 +24,13 @@ meeting audio to OpenAI and uses your paid API account.
 3. Save an OpenAI API key in **Preferences**. AI Assistant, transcription, and
    summaries share this credential. Keys use the OS credential store, with no
    plaintext fallback; `OPENAI_API_KEY` can override the stored key for a launch.
-4. Open **AI Assistant → Contacts**. Add a name and the exact HTTPS Cliq chat
-   link or Google Meet meeting link. Choose that entry's incoming, outgoing or
+4. Open **AI Assistant → Contacts**. Configure the Cliq company ID and region,
+   then add a name and chat ID, or paste the exact HTTPS Cliq chat link. The
+   first full link can fill an empty company setting. Google Meet links also
+   work. Choose that entry's incoming, outgoing or
    joined-meeting, and summary permissions. There are no preconfigured recipients.
 5. In **AI Assistant → Settings**, choose the paired Chrome profile, model,
-   voice, system instructions, maximum duration, platforms, and availability.
+   voice, language, system instructions, maximum duration, platforms, and availability.
    Save a default objective before enabling automatic assistance.
 6. Enable **AI Assistant**. In **Call**, select a contact and enter the objective.
    Choose **Call now**, or enable **Schedule for later** and set a date and time.
@@ -50,6 +52,10 @@ The default Realtime model is `gpt-realtime`, the default voice is `marin`, and
 the default maximum call duration is 90 seconds. Model and voice fields are
 editable; use values supported by your OpenAI API account. Duration can be set
 from 15 to 600 seconds. Changes apply to subsequent calls.
+
+**Language** defaults to English. Select or type a language name, or choose
+**Follow the caller** (`auto`) to adapt to the participant. The language applies
+to the opening, conversation, and closing; speech quality depends on the model.
 
 The built-in instructions tell the assistant to identify itself as AI, convey
 the objective promptly, avoid impersonating the account owner or inventing
@@ -73,7 +79,11 @@ and result locally.
 
 ## Contacts, platforms, and working hours
 
-Each target must be an exact supported HTTPS link:
+Use **Add contact** beside the searchable Call selector, or **Contacts → Add**.
+Contacts can be edited or removed from the Contacts table. The selector searches
+saved names and keeps the selected contact explicit before calling.
+
+Each target is saved as an exact supported HTTPS link:
 
 ```text
 https://cliq.zoho.com/company/123456789/chats/987654321
@@ -85,6 +95,17 @@ supported regional hosts are `.com`, `.eu`, `.in`, `.com.au`, `.jp`, `.ca`,
 `.com.cn`, and `.sa`. Redirect links, other hosts, credentials in URLs, extra
 path components, query strings, and fragments are rejected. A Cliq target's ID
 is the numeric chat ID in its link. Names are labels, not proof of identity.
+
+The company ID and regional origin are configured separately. A numeric chat ID
+uses those settings to construct its link. A link for another company or region
+requires an explicit settings change. Existing contacts retain their saved links.
+Older settings infer the company automatically only when all saved Cliq contacts
+share one company and region.
+
+An explicit MCP call or schedule may create a new contact from a chat ID using
+the configured company; optional `contact_name` gives it a friendly label. New
+contacts allow outgoing calls only, with incoming calls and summaries disabled.
+Existing disabled contacts and their outgoing restrictions remain enforced.
 
 - **Incoming Cliq:** both automatic answering and the contact's incoming
   permission must be enabled. When an incoming dialog supplies a participant ID
@@ -144,7 +165,13 @@ Chrome is unreachable; check the call in Chrome if the app reports uncertainty.
 **Force quit** is a recovery action and does not provide that grace period.
 
 **AI Assistant → History** shows pending and finished calls, objectives, outcomes,
-transcripts, errors, and summary delivery state. A queued request means only
+transcripts, errors, and summary delivery state. Search contact names, objectives,
+or summary text and use the page controls to browse the complete local history,
+including jobs older than the recent status snapshot. Results appear newest
+first; search treats punctuation as ordinary text. Automation has its own paged
+summary history, including failed and uncertain delivery attempts.
+
+A queued request means only
 that Voice Loop accepted a job; it does not prove the recipient answered or
 heard the message. Inspect the final job result before repeating a call.
 
@@ -161,6 +188,13 @@ The HTML renderer escapes transcript content and loads no external resources.
 Local history and exports are ordinary unencrypted files. Browser confirmation,
 transcripts, and generated summaries are useful evidence, not proof that every
 word was heard or that an action was completed.
+
+Keep company IDs, chat links, participant identifiers, and transcript contents
+out of shared logs and screenshots. The repository's local `artifacts/` directory
+is ignored by Git; ignoring a file does not redact its contents. Diagnostic copies
+used for this release have been anonymized separately from functional contact
+settings and original recordings. Live-test helpers require an explicitly chosen
+configured contact at runtime instead of embedding a private recipient in code.
 
 ## Automation: post-call summaries
 
@@ -192,10 +226,16 @@ does not arrive, delivery fails rather than guessing that the call ended.
 The extension opens the configured chat and interacts with its visible browser
 controls. **No Cliq API or Deluge integration is used.** It will not replace a
 user's draft or silently send to a different chat. Delivery status appears in
-Automation and call history. Failed or ambiguous sends are not automatically
-retried, because a retry could post a duplicate. Browser UI changes, a closed
+Automation and call history. Multiline summaries are compared as rendered plain
+text, and a cleared composer alone does not confirm delivery: the extension waits
+for a new matching message in the original chat. Failed or ambiguous sends are
+not automatically retried, because a retry could post a duplicate. Browser UI changes, a closed
 tab, login expiry, or a blocked composer can prevent delivery. Delivery is not
 guaranteed; inspect the chat and recorded status before repeating anything.
+
+The live verification produced a valid draft that the user sent manually.
+Automatic sending after the multiline correction is covered by controlled
+browser tests and still needs separate authorized live verification.
 
 ## MCP integration
 
@@ -221,8 +261,8 @@ separate local control token from the current user's Voice Loop data folder.
 | --- | --- | --- |
 | `voice_loop_status` | None | Read readiness, configured targets, and recent job outcomes. |
 | `voice_loop_job` | `job_id`, optional `offset=0`, `limit=20` | Read a job and a transcript page; maximum 50 turns, with `next_offset` when more remain. |
-| `voice_loop_call` | `chat_id`, `objective` | Request one real, paid assistant call to an allowed Cliq chat. |
-| `voice_loop_schedule` | `chat_id`, `objective`, `when` | Schedule one call; `when` must include a time zone, for example `2026-10-01T14:30:00+05:30`. |
+| `voice_loop_call` | `chat_id`, `objective`, optional `contact_name` | Request one real, paid assistant call, resolving new chat IDs with the configured company. |
+| `voice_loop_schedule` | `chat_id`, `objective`, `when`, optional `contact_name` | Schedule one call; `when` must include a time zone, for example `2026-10-01T14:30:00+05:30`. |
 | `voice_loop_cancel` | `job_id` | Cancel one pending job or request the active call's hangup. |
 
 Call and schedule tools require explicit user authorization for the recipient

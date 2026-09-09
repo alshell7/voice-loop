@@ -47,7 +47,7 @@ def create_server(client=request):
     server = FastMCP(
         "Voice Loop",
         instructions=(
-            "Control short AI voice calls through the user's configured Cliq chats. "
+            "Control short AI voice calls through the user's configured Cliq company and chats. "
             "Call or schedule only when the user explicitly authorizes "
             "the recipient and objective. "
             "A queued job is not proof a call happened. Read status for outcomes. "
@@ -72,23 +72,36 @@ def create_server(client=request):
     @server.tool(
         annotations=ToolAnnotations(destructiveHint=False, idempotentHint=False, openWorldHint=True)
     )
-    def voice_loop_call(chat_id: str, objective: str) -> dict:
-        """Start one short AI call to an enabled configured Cliq chat. Requires user authorization.
+    def voice_loop_call(chat_id: str, objective: str, contact_name: str = "") -> dict:
+        """Start one short authorized AI call by Cliq chat ID.
 
+        For a new chat ID, Voice Loop must have its Cliq company configured.
+        contact_name optionally labels that recipient; existing chat permissions still apply.
+        This does not authorize automatic incoming calls from an unknown chat.
         This places a real call and uses paid OpenAI audio. The assistant identifies itself.
         Do not retry an uncertain request: inspect voice_loop_status first.
         """
-        return client("call", {"chat_id": chat_id, "objective": objective})
+        payload = {"chat_id": chat_id, "objective": objective}
+        if contact_name:
+            payload["contact_name"] = contact_name
+        return client("call", payload)
 
     @server.tool(
         annotations=ToolAnnotations(destructiveHint=False, idempotentHint=False, openWorldHint=True)
     )
-    def voice_loop_schedule(chat_id: str, objective: str, when: str) -> dict:
+    def voice_loop_schedule(
+        chat_id: str, objective: str, when: str, contact_name: str = ""
+    ) -> dict:
         """Schedule one authorized call. when must be ISO 8601 with timezone, e.g. +05:30.
 
+        A new chat ID uses the configured Cliq company; contact_name optionally labels it.
+        Scheduling does not authorize automatic incoming calls from that chat.
         Voice Loop and the paired Chrome profile must be running; missed calls expire.
         """
-        return client("schedule", {"chat_id": chat_id, "objective": objective, "when": when})
+        payload = {"chat_id": chat_id, "objective": objective, "when": when}
+        if contact_name:
+            payload["contact_name"] = contact_name
+        return client("schedule", payload)
 
     @server.tool(
         annotations=ToolAnnotations(destructiveHint=False, idempotentHint=True, openWorldHint=True)

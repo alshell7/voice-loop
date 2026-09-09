@@ -161,8 +161,8 @@ function ownMessage(b, lines) {
 test("multiline ProseMirror paragraphs match the summary and its BR-rendered own receipt", async t => {
   const b = fixture(composer); t.after(b.close);
   const editor = b.d.querySelector("[contenteditable]");
-  editor.innerHTML = '<p data-text="Message Abullais Ahmed" class="ui-rte-placeholder"><br class="ProseMirror-trailingBreak"></p>';
-  const lines = ["Voice Loop · Call summary", "The assistant called Abullais. Next step: review <draft> & reply."];
+  editor.innerHTML = '<p data-text="Message Sample Contact" class="ui-rte-placeholder"><br class="ProseMirror-trailingBreak"></p>';
+  const lines = ["Voice Loop · Call summary", "The assistant called Sample Contact. Next step: review <draft> & reply."];
   // A ProseMirror transaction represents newlines as paragraphs, not text nodes.
   editor.addEventListener("input", () => {
     const paragraphs = editor.textContent.split("\n").map(line => { const p = b.d.createElement("p"); p.textContent = line; return p; });

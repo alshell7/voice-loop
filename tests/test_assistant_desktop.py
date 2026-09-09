@@ -5,11 +5,13 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import QEvent
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QApplication
 
 from voiceloop.config import Settings
 from voiceloop.devices import Device, Devices
+from voiceloop.library import Contacts
 from voiceloop.ui import App
 
 
@@ -30,10 +32,16 @@ def window(tmp_path):
     result = App(
         settings=Settings(speaker_id="speaker", recording_directory=str(tmp_path)),
         device_provider=lambda: devices,
+        contacts=Contacts(tmp_path / "contacts.json"),
+        assistant_directory=tmp_path / "assistant",
     )
     yield result
     result.closing = True
     result.close()
+    if result.floating:
+        result.floating.deleteLater()
+    result.deleteLater()
+    qt.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     qt.processEvents()
 
 

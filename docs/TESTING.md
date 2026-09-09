@@ -7,7 +7,7 @@ remains separate from automated and packaging results.
 
 ## AI Assistant and Automation implementation checks
 
-- The most recent full Python run passed **396 tests in 265.91 seconds**.
+- The most recent full Python run passed **489 tests in 69.26 seconds**.
   Realtime-focused checks also passed after the opening-response correction.
   Ruff lint and formatting checks, and actionlint workflow checks, pass. The
   browser extension suite passes **99 Node tests**, including multiline draft
@@ -27,6 +27,14 @@ remains separate from automated and packaging results.
   gating, no duplicate sends, opt-out before delivery, and failure when call end
   remains unconfirmed. Test doubles replace browser commands, audio devices,
   credentials, and OpenAI responses; no real recipient is called by these tests.
+- Twenty focused history tests cover SQLite pagination beyond 200 jobs, stable
+  ordering, summary-only filtering, searches of older records, Unicode casefold,
+  literal SQL/wildcard characters, bounded page sizes, and invalid inputs.
+- Company/contact regressions cover migration, new ID/link resolution,
+  outgoing-only defaults, policy checks before persistence, wrong-company
+  rejection, future availability, and passing the selected language to Realtime.
+  UI checks cover contact editing after a workspace change, exact selection,
+  readable search popups, pagination, and opening the latest job in Recordings.
 - Source Qt render checks inspected Call, Settings, Contacts, History, and
   Automation using synthetic contacts. The quick-call page remains compact
   independently of the longer settings tab. Editable dropdowns reuse the
@@ -45,6 +53,11 @@ remains separate from automated and packaging results.
   regression preserves an existing simulated active-call database and control
   token unchanged. The isolated source diagnostic reports no audio, network, or
   startup changes, and no assistant control listener started.
+  Every test that constructs the desktop App also supplies temporary assistant
+  storage and contacts, so a test cannot recover real in-progress jobs.
+  Test teardown deletes retained windows, and application styling initializes
+  once. The combined 75-test UI/browser/capture sequence passes without the
+  earlier repeated-styling stall.
 - Additional coverage includes normal-quit hangup grace and transcript
   persistence, the per-chat summary path for completed ordinary browser call
   recordings after transcription, cancellation and scoped confirmation of
@@ -104,12 +117,21 @@ summary sending still need their own authorized live verification. A successful
 API check, fixture, or queued command is not a substitute. Keep keys, private
 transcripts, and recipient identifiers out of public verification reports.
 
+Local diagnostic copies under `artifacts/` were anonymized without changing
+functional AppData settings or original recordings. A scan of current tracked
+files and artifact text found no remaining known private recipient/company/chat
+identifiers; diagnostic JSON remained valid after redaction. This does not make
+future captures safe to share automatically: inspect new logs and screenshots
+before including them in a report. The retained smoke-test WAVs contain generated
+speech rather than a recipient's recorded call.
+
 The following assistant suites run without calling OpenAI or a real contact:
 
 ```sh
 python -m pytest tests/test_assistant_config.py tests/test_assistant_ui.py tests/test_assistant.py
 python -m pytest tests/test_assistant_audio.py tests/test_realtime.py
 python -m pytest tests/test_assistant_control.py tests/test_assistant_mcp.py
+python -m pytest tests/test_assistant_store.py
 node --test extension/chrome/tests/*.test.mjs
 ```
 

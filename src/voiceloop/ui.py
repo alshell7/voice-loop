@@ -440,14 +440,34 @@ class App(QMainWindow):
     def _assistant_page(self, layout):
         from voiceloop.assistant_ui import AssistantPage
 
-        self.assistant_page = AssistantPage(self.assistant, self)
+        self.assistant_page = AssistantPage(
+            self.assistant, self, on_open_history=self.open_assistant_history
+        )
         layout.addWidget(self.assistant_page)
 
     def _automation_page(self, layout):
         from voiceloop.assistant_ui import AutomationPage
 
-        self.automation_page = AutomationPage(self.assistant, self)
+        self.automation_page = AutomationPage(
+            self.assistant, self, on_open_history=self.open_assistant_history
+        )
         layout.addWidget(self.automation_page)
+
+    def open_assistant_history(self, job):
+        from voiceloop.assistant_ui import AssistantHistoryDialog
+
+        job = self.assistant.store.get(job["id"])
+        self.navigate(2)
+        if job.get("recording_path"):
+            self.open_session_dialog(Path(job["recording_path"]))
+            return
+        viewer = AssistantHistoryDialog(job, parent=self)
+        viewer.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.dialogs.append(viewer)
+        viewer.finished.connect(
+            lambda *_: self.dialogs.remove(viewer) if viewer in self.dialogs else None
+        )
+        viewer.show()
 
     def enable_assistant(self):
         from voiceloop.assistant_control import ControlServer
@@ -1466,6 +1486,7 @@ class App(QMainWindow):
 
         try:
             viewer = SessionDialog(self, directory)
+            viewer.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
             self.dialogs.append(viewer)
             viewer.finished.connect(
                 lambda *_: self.dialogs.remove(viewer) if viewer in self.dialogs else None
@@ -1647,6 +1668,8 @@ class App(QMainWindow):
 
 def create_application():
     app = QApplication.instance() or QApplication(sys.argv)
+    if app.property("voiceLoopInitialized"):
+        return app
     app.setApplicationName("Voice Loop")
     app.setOrganizationName("VoiceLoop")
     app.setStyle("Fusion")
@@ -1656,6 +1679,7 @@ def create_application():
     app.setStyleSheet(
         STYLE.replace("@CHEVRON@", chevron.as_posix()).replace("@CHECK@", check.as_posix())
     )
+    app.setProperty("voiceLoopInitialized", True)
     return app
 
 

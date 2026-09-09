@@ -2,6 +2,9 @@
 
 import hmac
 import json
+import os
+import re
+import socket
 import threading
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler
@@ -10,6 +13,38 @@ from voiceloop.browser_bridge import _Server, pairing_token
 from voiceloop.config import data_directory
 
 CONTROL_PORT = 49322
+
+
+class _ControlHTTPServer(_Server):
+    # POSIX needs this to rebind after a closed listener has accepted sockets
+    # still draining or in TIME_WAIT. It does not allow two listening sockets
+    # on this exact loopback address; SO_REUSEPORT is never enabled.
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        # Windows SO_REUSEADDR permits listener hijacking. Retain exclusive
+        # ownership there instead of copying the POSIX restart option.
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+def call_arguments(data, *, scheduled=False):
+    required = {"chat_id", "objective", "when"} if scheduled else {"chat_id", "objective"}
+    if not required.issubset(data) or set(data) - required - {"contact_name"}:
+        raise ValueError("Expected a chat ID, objective and optional contact name.")
+    chat_id, objective = data["chat_id"], data["objective"]
+    if not isinstance(chat_id, str) or not re.fullmatch(r"[0-9]{1,40}", chat_id):
+        raise ValueError("Expected a numeric Cliq chat ID.")
+    if not isinstance(objective, str) or not 1 <= len(objective.strip()) <= 4000:
+        raise ValueError("Expected an objective of 1–4,000 characters.")
+    options = {}
+    if "contact_name" in data:
+        name = data["contact_name"]
+        if not isinstance(name, str) or len(name.strip()) > 120 or any(ord(c) < 32 for c in name):
+            raise ValueError("Expected a contact name of at most 120 characters.")
+        options["contact_name"] = name.strip()
+    return chat_id, objective, options
 
 
 def compact_job(job):
@@ -145,19 +180,23 @@ class ControlServer:
                                 {"id": t.id, "name": t.name, "url": t.url, "enabled": t.enabled}
                                 for t in owner.service.config.targets
                             ]
+                            result["cliq"] = {
+                                "company_id": owner.service.config.cliq_company_id,
+                                "origin": owner.service.config.cliq_origin,
+                            }
+                            result["language"] = owner.service.config.language
                         elif self.path == "/v1/job":
                             result = job_page(owner.service, data)
                         elif self.path == "/v1/call":
-                            if set(data) != {"chat_id", "objective"}:
-                                raise ValueError("Expected chat_id and objective.")
-                            result = owner.service.trigger(data["chat_id"], data["objective"])
+                            chat_id, objective, options = call_arguments(data)
+                            result = owner.service.trigger(chat_id, objective, **options)
                         elif self.path == "/v1/schedule":
-                            if set(data) != {"chat_id", "objective", "when"}:
-                                raise ValueError("Expected chat_id, objective and when.")
+                            chat_id, objective, options = call_arguments(data, scheduled=True)
                             result = owner.service.schedule(
-                                data["chat_id"],
-                                data["objective"],
+                                chat_id,
+                                objective,
                                 datetime.fromisoformat(data["when"]),
+                                **options,
                             )
                         elif self.path == "/v1/cancel":
                             if set(data) != {"job_id"}:
@@ -181,7 +220,7 @@ class ControlServer:
                 except (OSError, RuntimeError):
                     self._reply(503, {"error": "Voice Loop is not ready. Check the desktop app."})
 
-        self.server = _Server(("127.0.0.1", self.port), None)
+        self.server = _ControlHTTPServer(("127.0.0.1", self.port), None)
         self.server.RequestHandlerClass = Handler
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)

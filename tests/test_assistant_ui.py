@@ -1,5 +1,6 @@
 """Exercise real Qt controls without browsers, audio streams, or API calls."""
 
+import json
 import os
 from dataclasses import replace
 
@@ -7,9 +8,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import QDateTime
+from PySide6.QtGui import QPalette
 
 from voiceloop.assistant_config import AssistantSettings, ChatTarget
-from voiceloop.assistant_ui import AssistantPage, AutomationPage, render_assistant_job
+from voiceloop.assistant_ui import (
+    AssistantHistoryDialog,
+    AssistantPage,
+    AutomationPage,
+    render_assistant_job,
+)
 from voiceloop.ui import create_application
 
 
@@ -136,3 +143,193 @@ def test_history_cancel_and_escaped_reader(page):
     rendered = render_assistant_job(page.service.jobs[0])
     assert "<script>" not in rendered and "<img" not in rendered
     assert "&lt;script&gt;" in rendered
+
+
+def test_visible_contact_actions_create_edit_delete(page, qt):
+    assert page.add_contact_shortcut.isVisible()
+    page.add_contact_shortcut.click()
+    qt.processEvents()
+    assert page.contact_dialog.isVisible()
+    page.contact_name.setText("New contact")
+    page.contact_url.setText("https://cliq.zoho.com/company/123/chats/789")
+    page.save_contact_button.click()
+    assert not page.contact_dialog.isVisible()
+    assert page.service.config.cliq_company_id == "123"
+    assert page.target.currentData() == "789"
+    page.tabs.setCurrentIndex(2)
+    page.contacts.selectRow(1)
+    assert page.edit_contact_button.isEnabled() and page.remove_contact.isEnabled()
+    page.edit_contact_button.click()
+    assert page.contact_dialog.isVisible() and page.contact_name.text() == "New contact"
+    page.contact_name.setText("Renamed contact")
+    page.save_contact_button.click()
+    assert page.service.config.target("789").name == "Renamed contact"
+    page.contacts.selectRow(1)
+    page.remove_contact.click()
+    assert page.service.config.target("789") is None
+
+
+def test_numeric_contact_id_uses_separate_workspace(page):
+    page.company_id.setText("123")
+    page.cliq_origin.setCurrentIndex(page.cliq_origin.findData("https://cliq.zoho.eu"))
+    page.save_workspace()
+    page.contact_name.setText("Regional contact")
+    page.contact_url.setText("789")
+    page.save_contact()
+    assert page.service.config.target("789").url == "https://cliq.zoho.eu/company/123/chats/789"
+
+
+@pytest.mark.parametrize("suffix", ["", "/"])
+def test_edit_existing_contact_keeps_its_url_after_workspace_change(page, suffix):
+    original_url = page.service.config.target("456").url
+    page.company_id.setText("999")
+    page.cliq_origin.setCurrentIndex(page.cliq_origin.findData("https://cliq.zoho.eu"))
+    page.save_workspace()
+    page.contacts.selectRow(0)
+    page.edit_contact_button.click()
+    page.contact_url.setText(original_url + suffix)
+    page.contact_name.setText("Renamed original contact")
+    page.contact_incoming.setChecked(True)
+    page.contact_summary.setChecked(True)
+    page.save_contact_button.click()
+    target = page.service.config.target("456")
+    assert target.name == "Renamed original contact"
+    assert target.allow_incoming and target.send_summary
+    assert target.url == original_url
+    assert page.service.config.cliq_company_id == "999"
+    assert page.service.config.cliq_origin == "https://cliq.zoho.eu"
+
+    # Reusing this editor for a different old-workspace URL cannot bypass scope validation.
+    page.contacts.selectRow(0)
+    page.edit_contact_button.click()
+    page.contact_url.setText("https://cliq.zoho.com/company/123/chats/789")
+    page.save_contact_button.click()
+    assert page.service.config.target("789") is None
+    assert page.service.config.target("456").url == original_url
+    assert "different Cliq company or region" in page.contact_notice.text()
+
+
+def test_unmatched_typed_contact_cannot_call_previous_selection(page):
+    page.objective.setPlainText("Confirm the appointment.")
+    page.target.setEditText("Al")
+    assert not page.call_now.isEnabled()
+    page.trigger()
+    assert not page.service.calls
+    page.target.completer().setCompletionPrefix("le")
+    assert page.target.completer().completionCount() == 1
+    page.target.setEditText("alex")
+    assert page.call_now.isEnabled()
+    page.trigger()
+    assert page.service.calls[0][0] == "456"
+
+
+def test_call_picker_and_completion_have_light_readable_palette(page):
+    for popup in (page.target.view(), page.target.completer().popup()):
+        for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
+            assert popup.palette().color(group, QPalette.ColorRole.Base).name() == "#ffffff"
+            assert popup.palette().color(group, QPalette.ColorRole.Text).name() == "#20242d"
+
+
+def test_duplicate_contact_names_are_distinguishable(page):
+    page.service.config.targets.append(
+        ChatTarget.from_url("Alex", "https://cliq.zoho.com/company/123/chats/789")
+    )
+    page.refresh()
+    assert page.target.itemText(0) != page.target.itemText(1)
+    page.target.setEditText("Alex")
+    page.objective.setPlainText("Confirm the appointment.")
+    page.trigger()
+    assert not page.service.calls
+
+
+def test_language_accepts_custom_and_follow_caller(page):
+    page.language.setEditText("Malayalam")
+    page.save_settings()
+    assert page.service.config.language == "Malayalam"
+    page.language.setCurrentIndex(page.language.findData("auto"))
+    page.save_settings()
+    assert page.service.config.language == "auto"
+
+
+def test_history_paging_search_and_open_callback(page):
+    opened = []
+    page.on_open_history = opened.append
+    page.service.jobs = [
+        {
+            "id": f"job-{index}",
+            "target_name": f"Contact {index}",
+            "state": "completed",
+            "delivery_status": "sent",
+            "summary": f"Outcome {index}",
+        }
+        for index in range(26)
+    ]
+    page.refresh()
+    assert page.history.rowCount() == 10
+    assert "1 / 3" in page.history_pager.info.text()
+    assert page.history.item(0, 2).text() == "Sent to chat"
+    page.history_pager.next.click()
+    assert page._jobs[0]["id"] == "job-10"
+    page.open_history_button.click()
+    assert opened[0]["id"] == "job-10"
+    page.history.selectRow(1)
+    page.history.itemClicked.emit(page.history.item(1, 0))
+    assert opened[-1]["id"] == "job-11"
+    page.history_pager.next.click()
+    assert page.history.rowCount() == 6 and not page.history_pager.next.isEnabled()
+    page.history_pager.query.setText("Outcome 25")
+    assert page.history_pager.page == 1 and page.history.rowCount() == 1
+    assert page._jobs[0]["id"] == "job-25"
+
+
+def test_server_pagination_does_not_limit_history_to_snapshot(page):
+    requests = []
+
+    def list_jobs(**options):
+        requests.append(options)
+        return {
+            "items": [{"id": "older", "target_name": "Older call"}],
+            "total": 251,
+            "pages": 26,
+            "page": options["page"],
+        }
+
+    page.service.list_jobs = list_jobs
+    page.refresh()
+    page.history_pager.next.click()
+    assert requests[-1] == {"kind": None, "query": "", "page": 2, "page_size": 10}
+    assert "2 / 26" in page.history_pager.info.text()
+    assert page._jobs[0]["id"] == "older"
+
+
+def test_automation_excludes_unrequested_summaries_and_opens_history(page):
+    opened = []
+    page.service.jobs = [
+        {"id": "no-summary", "delivery_status": "not_requested", "state": "completed"},
+        {"id": "sent", "delivery_status": "sent", "summary": "Brief result"},
+        {"id": "unknown", "delivery_status": "ambiguous", "summary": "Check delivery"},
+    ]
+    automation = AutomationPage(page.service, on_open_history=opened.append)
+    assert automation.history.rowCount() == 2
+    assert automation.history.item(0, 1).text() == "Sent to chat"
+    assert automation.history.item(1, 1).text() == "Delivery unconfirmed"
+    automation.history.selectRow(1)
+    assert "Check the chat before sending again" in automation.reader.toPlainText()
+    automation.open_history_button.click()
+    assert opened[0]["id"] == "unknown"
+    automation.deleteLater()
+
+
+def test_assistant_viewer_displays_escaped_html_and_complete_json(qt):
+    job = {
+        "id": "job",
+        "target_name": "<script>",
+        "state": "completed",
+        "transcript": [{"role": "user", "text": "مرحبا <img src=https://invalid>"}],
+    }
+    dialog = AssistantHistoryDialog(job)
+    assert json.loads(dialog.json.toPlainText()) == job
+    assert "<img src=https://invalid>" in dialog.reader.toPlainText()
+    assert "مرحبا" in dialog.reader.toPlainText()
+    assert not dialog.reader.openLinks() and not dialog.reader.openExternalLinks()
+    dialog.deleteLater()

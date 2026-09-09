@@ -109,7 +109,25 @@ class AssistantService:
         if not self.config.permits(self.now()):
             raise ValueError("The configured availability policy does not allow calls now.")
 
-    def _new_job(self, target, objective, *, when=None, event=None):
+    def _outgoing_target(self, value, contact_name=""):
+        if not isinstance(value, str) or not isinstance(contact_name, str):
+            raise ValueError("Enter a chat ID or link and a contact name.")
+        value = value.strip()
+        existing = self.config.target(value)
+        if existing:
+            return existing, None
+        config = copy.deepcopy(self.config)
+        target = config.make_cliq_target(contact_name.strip() or "Cliq contact", value)
+        existing = config.target(target.id)
+        if existing:
+            if existing.url != target.url:
+                raise ValueError("This chat ID is already configured for another company.")
+            return existing, None
+        config.targets.append(target)
+        config.validate()
+        return target, config
+
+    def _new_job(self, target, objective, *, when=None, event=None, new_config=None):
         if self._shutting_down:
             raise ValueError("Voice Loop is shutting down.")
         if not isinstance(objective, str) or not objective.strip() or len(objective) > 4000:
@@ -145,14 +163,16 @@ class AssistantService:
             "error": "",
             "delivery_status": "not_requested",
         }
+        if new_config is not None:
+            self.save_config(new_config)
         self.store.put(job)
         return job
 
-    def trigger(self, target_id, objective):
+    def trigger(self, target_id, objective, *, contact_name=""):
         with self.lock:
             if not self.runtime_enabled:
                 raise ValueError("Open the Voice Loop desktop app first.")
-            target = self._target(target_id)
+            target, new_config = self._outgoing_target(target_id, contact_name)
             self._permit(target)
             if target.provider != "zoho_cliq":
                 raise ValueError(
@@ -164,20 +184,26 @@ class AssistantService:
                 or any(j["state"] == "queued" for j in self.store.list())
             ):
                 raise ValueError("Finish the current audio session or AI call first.")
-            return self._new_job(target, objective)
+            return self._new_job(target, objective, new_config=new_config)
 
-    def schedule(self, target_id, objective, when):
+    def schedule(self, target_id, objective, when, *, contact_name=""):
         with self.lock:
             if not isinstance(when, datetime) or when.tzinfo is None:
                 raise ValueError("Schedule must include a timezone.")
             if not 0 < (when - self.now()).total_seconds() <= 366 * 86400:
                 raise ValueError("Choose a future time within one year.")
-            target = self._target(target_id)
+            target, new_config = self._outgoing_target(target_id, contact_name)
             if not self.config.enabled or not target.enabled or not target.allow_outgoing:
                 raise ValueError("Enable the assistant and outgoing calls for this chat first.")
             if target.provider != "zoho_cliq":
                 raise ValueError("Scheduled outgoing calls currently use Zoho Cliq.")
-            return self._new_job(target, objective, when=when.astimezone(UTC))
+            if target.provider not in self.config.platforms or not self.config.permits(when):
+                raise ValueError(
+                    "The platform or availability policy does not allow this scheduled call."
+                )
+            return self._new_job(
+                target, objective, when=when.astimezone(UTC), new_config=new_config
+            )
 
     def cancel(self, job_id):
         with self.lock:
@@ -482,6 +508,7 @@ class AssistantService:
             config = RealtimeConfig(
                 model=self.config.model,
                 voice=self.config.voice,
+                language=self.config.language,
                 instructions=self.config.system_instructions,
                 objective=job["objective"],
                 max_duration_seconds=self.config.max_duration_seconds,
@@ -760,6 +787,11 @@ class AssistantService:
                         self.worker.stop()
                 self.store.put(job)
                 return
+
+    def list_jobs(self, kind=None, query="", page=1, page_size=20):
+        """Search and page through the complete local job history."""
+        with self.lock:
+            return self.store.page(kind=kind, query=query, page=page, page_size=page_size)
 
     def snapshot(self):
         with self.lock:

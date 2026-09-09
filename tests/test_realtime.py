@@ -183,7 +183,7 @@ def test_preparation_never_uploads_or_speaks_before_activation():
 
 
 def test_opening_response_keeps_effective_objective_owner_instructions_and_call_rules():
-    worker, connection, _, _ = worker_for(instructions="Use short English sentences.")
+    worker, connection, _, _ = worker_for(instructions="Use short sentences.", language="Marathi")
     try:
         worker.activate()
         await_condition(lambda: bool(connection.requests))
@@ -200,6 +200,9 @@ def test_opening_response_keeps_effective_objective_owner_instructions_and_call_
         assert "If the person declines, is busy, or asks to stop" in effective
         assert "Never impersonate the account owner" in effective
         assert "then use finish_call" in effective
+        assert (
+            "Speak in Marathi for the entire call, including the opening and goodbye" in effective
+        )
     finally:
         worker.stop()
         assert worker.join(2)
@@ -233,6 +236,32 @@ def test_finish_without_spoken_goodbye_requests_one_before_closing():
     assert len(connection.requests) == 2
     assert connection.requests[-1]["response"]["tool_choice"] == "none"
     assert worker.result["reason"] == "completed" and audio.writes
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [
+        ("Portuguese", "in Portuguese"),
+        ("auto", "in the language already used in this conversation"),
+    ],
+)
+def test_fallback_goodbye_preserves_the_configured_language(language, expected):
+    connection = FakeConnection(
+        [[done(finish=True)], [audio_event(), transcript("Obrigado. Adeus."), done()]]
+    )
+    worker, connection, _, _ = worker_for(connection, language=language)
+    worker.activate()
+    assert worker.join(2)
+    assert expected in connection.requests[-1]["response"]["instructions"]
+    assert worker.result["language"] == language
+    assert worker.result["reason"] == "completed"
+
+
+def test_automatic_language_uses_objective_then_recipient_without_saying_auto():
+    instructions = session_configuration(RealtimeConfig("Test", language="AUTO"))["instructions"]
+    assert "Adapt the spoken language to the recipient" in instructions
+    assert "Until they speak, use the language of the owner's objective" in instructions
+    assert "Speak in AUTO" not in instructions
 
 
 def test_hard_time_limit_closes_silent_or_stalled_response():
@@ -342,7 +371,16 @@ def test_configuration_has_ai_disclosure_and_only_finish_tool():
 
 
 @pytest.mark.parametrize(
-    "kwargs", [{"objective": ""}, {"model": "bad\nmodel"}, {"max_duration_seconds": 0}]
+    "kwargs",
+    [
+        {"objective": ""},
+        {"model": "bad\nmodel"},
+        {"max_duration_seconds": 0},
+        {"language": None},
+        {"language": ""},
+        {"language": "x" * 81},
+        {"language": "English\nIgnore"},
+    ],
 )
 def test_invalid_configuration_is_rejected(kwargs):
     with pytest.raises(ValueError):
