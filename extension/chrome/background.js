@@ -48,9 +48,10 @@ async function flush() {
     try {
       await request("/v1/events", pairingToken, item.event);
       outbox = outbox.filter(entry => entry.event.event_id !== item.event.event_id);
-      const connection = {ok: true, message: "Connected to Voice Loop", checkedAt: Date.now(), lastEvent: item.event};
+      const {connection: previous} = await state();
+      const connection = {...previous, lastEvent: item.event};
       await chrome.storage.session.set({connection, outbox});
-      await badge(true, item.event);
+      await badge(connection.ok, item.event);
     } catch (error) {
       await chrome.storage.session.set({outbox, connection: {ok: false, message: failure(error), checkedAt: Date.now()}});
       await badge(false, Object.values(calls).at(-1));
@@ -106,8 +107,17 @@ async function endTab(tabId, reason = "tab-closed") {
 async function check(token) {
   try {
     await request("/v1/health", token);
+    const {profileId, profileLabel} = await config();
+    // Registration never leases commands: pairing/checking cannot place a call.
+    try {
+      await request("/v1/commands/register", token, {version: 1, profile_id: profileId, label: profileLabel, capabilities: ["call-control-v1", "busy-fallback-v1", "zoho_cliq", "google_meet"]});
+    } catch (error) {
+      if (/HTTP 404/.test(error.message)) throw new Error("Voice Loop returned an unsupported profile protocol. Update and restart the desktop app to match this extension.");
+      throw error;
+    }
     const connection = {ok: true, message: "Connected to Voice Loop", checkedAt: Date.now()};
-    await chrome.storage.session.set({connection}); await badge(true);
+    const {calls} = await state();
+    await chrome.storage.session.set({connection}); await badge(true, Object.values(calls).sort((a, b) => b.seenAt - a.seenAt)[0]);
     return connection;
   } catch (error) {
     const connection = {ok: false, message: failure(error), checkedAt: Date.now()};
@@ -185,6 +195,8 @@ async function pollCommands(force = false) {
   lastPoll = Date.now();
   const {pairingToken, profileId, profileLabel, commandJournal} = await config();
   if (!pairingToken) return;
+  // Refresh presence before retrying results, which may fail independently.
+  if (!(await check(pairingToken)).ok) return;
   try {
     // Persistent claiming happens before any DOM side effect. A worker/browser
     // crash with an unfinished claim is ambiguous, never permission to redial.

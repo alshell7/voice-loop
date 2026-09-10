@@ -23,7 +23,7 @@ MAX_BODY = 16 * 1024
 _EXTENSION_ORIGIN = re.compile(r"chrome-extension://[a-p]{32}\Z")
 _TOKEN = re.compile(r"[A-Za-z0-9_-]{43,128}\Z")
 _ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
-_COMMAND_PATHS = {"/v1/commands/poll", "/v1/commands/result"}
+_COMMAND_PATHS = {"/v1/commands/poll", "/v1/commands/result", "/v1/commands/register"}
 
 
 def _identifier(value, name):
@@ -474,7 +474,7 @@ class BrowserBridge:
             if server is not self._server:
                 raise ValueError("Bridge is stopping.")
             self._expire_commands()
-            if path == "/v1/commands/poll":
+            if path in {"/v1/commands/poll", "/v1/commands/register"}:
                 capabilities = payload.get("capabilities", [])
                 if not isinstance(capabilities, list) or any(
                     value not in {"call-control-v1", "busy-fallback-v1", "zoho_cliq", "google_meet"}
@@ -493,6 +493,8 @@ class BrowserBridge:
                 self._profiles.move_to_end(profile_id)
                 while len(self._profiles) > 16:
                     self._profiles.popitem(last=False)
+                if path == "/v1/commands/register":
+                    return {"ok": True}
                 for record in self._commands.values():
                     command = record["command"]
                     if (

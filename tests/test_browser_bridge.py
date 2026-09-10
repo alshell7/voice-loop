@@ -482,3 +482,28 @@ def test_diagnostic_terminal_id_prefixes_preserve_event_protocol(bridge):
     for identifier in identifiers:
         assert post(bridge, payload() | {"event_id": identifier, "state": "ended"})[0] == 202
     assert [event.event_id for event in bridge.drain()] == identifiers
+
+
+def test_registration_refreshes_presence_without_leasing_commands(bridge, monkeypatch):
+    profile = {"version": 1, "profile_id": "profile-1", "capabilities": ["call-control-v1"]}
+    assert command_request(bridge, "register", profile) == (200, {"ok": True})
+    command = queue_call(bridge)
+    now = time.time()
+    monkeypatch.setattr("voiceloop.browser_bridge.time.time", lambda: now + 46)
+    assert bridge.profiles() == []
+    assert command_request(bridge, "register", profile) == (200, {"ok": True})
+    assert len(bridge.profiles()) == 1
+    # Use a fresh command after advancing beyond the original command TTL.
+    fresh = queue_call(bridge)
+    assert fresh != command
+    assert command_request(bridge, "register", profile)[1] == {"ok": True}
+    assert poll(bridge)[1]["commands"][0]["command_id"] == fresh
+
+
+@pytest.mark.parametrize("extra", [{"label": "bad\nlabel"}, {"capabilities": ["arbitrary-js"]}])
+def test_registration_validates_profile_metadata(bridge, extra):
+    assert (
+        command_request(bridge, "register", {"version": 1, "profile_id": "profile-1", **extra})[0]
+        == 400
+    )
+    assert bridge.profiles() == []

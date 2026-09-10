@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.3 (prerelease)
+
+- Register Chrome profiles immediately when pairing or checking connection,
+  without leasing or running any queued call commands.
+- Refresh profile presence before retrying command results, so an old result
+  cannot prevent an otherwise connected browser from appearing in AI Assistant.
+- Report registration failures instead of showing a health-only Connected status,
+  with guidance when the desktop app needs updating.
+
 ## 0.5.2 (prerelease)
 
 - Buffer faster-than-realtime speech without treating a full playback queue as

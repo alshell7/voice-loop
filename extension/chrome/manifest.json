@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Voice Loop — call companion",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Connect browser calls to Voice Loop and run explicitly configured AI call and summary actions.",
   "minimum_chrome_version": "120",
   "permissions": ["storage", "alarms"],

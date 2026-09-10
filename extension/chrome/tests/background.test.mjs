@@ -33,6 +33,7 @@ async function harness(sharedStorage) {
   const transport = {offline: false, unauthorized: false, commands: []};
   globalThis.fetch = async (url, init) => {
     requests.push({url, ...init});
+    if (transport.failPath && url.endsWith(transport.failPath)) return {ok: false, status: transport.failStatus || 503};
     if (transport.offline) throw new TypeError("Failed to fetch");
     return {ok: !transport.unauthorized, status: transport.unauthorized ? 401 : 200,
       async json() { return {ok: true, version: 1, application: "VoiceLoop", ...(url.endsWith("/commands/poll") ? {commands: transport.commands.splice(0, 1)} : {})}; }};
@@ -251,4 +252,45 @@ test("late end or heartbeat from an old call cannot erase or resurrect over a ne
   assert.equal(h.storage.session.inspect().calls[7]?.call_id, "new-call");
   await h.message(h.event("dialing", {call_id: "old-call"}));
   assert.equal(h.storage.session.inspect().calls[7]?.call_id, "new-call");
+});
+
+
+test("pairing registers an active profile without tabs or leasing queued commands", async () => {
+  const h = await harness();
+  h.transport.commands.push({command_id: "pending"});
+  assert.equal((await h.popup({type: "pair", token: "test-" + "b".repeat(32)})).ok, true);
+  const registration = h.requests.find(r => r.url.endsWith("/commands/register"));
+  assert.equal(JSON.parse(registration.body).profile_id, h.storage.local.inspect().profileId);
+  assert.equal(h.transport.commands.length, 1);
+  assert.equal(h.requests.some(r => r.url.endsWith("/commands/poll")), false);
+});
+
+test("health alone cannot report connected when profile registration fails", async () => {
+  const h = await harness();
+  h.transport.failPath = "/commands/register";
+  assert.equal((await h.popup({type: "status", check: true})).connection.ok, false);
+  h.transport.failPath = "";
+  assert.equal((await h.popup({type: "status", check: true})).connection.ok, true);
+});
+
+test("profile heartbeat precedes a failing journal acknowledgement", async () => {
+  const h = await harness();
+  await h.storage.local.set({commandJournal: {old: {created: Date.now(), acknowledged: false, result: {status: "failed"}}}});
+  h.transport.failPath = "/commands/result";
+  await h.message({type: "assistant-pulse"});
+  const paths = h.requests.map(r => new URL(r.url).pathname);
+  assert.ok(paths.indexOf("/v1/commands/register") >= 0);
+  assert.ok(paths.indexOf("/v1/commands/register") < paths.indexOf("/v1/commands/result"));
+});
+
+
+test("event delivery cannot hide a registration error", async () => {
+  const h = await harness();
+  h.transport.failPath = "/commands/register";
+  h.transport.failStatus = 404;
+  const status = await h.popup({type: "status", check: true});
+  assert.equal(status.connection.ok, false);
+  assert.match(status.connection.message, /Update and restart/);
+  await h.message(h.event());
+  assert.equal((await h.popup({type: "status"})).connection.ok, false);
 });

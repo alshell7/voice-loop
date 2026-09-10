@@ -7,7 +7,7 @@ Voice Loop service. Audio still goes through the desktop app's selected devices.
 
 ## Install and pair
 
-1. Install or run Voice Loop 0.4 or newer. Select your physical microphone and
+1. Install or run the desktop version matching your extension (0.5.3 or newer). Select your physical microphone and
    speaker in Session and check the meeting app's audio device settings.
 2. Open **Preferences → Browser calls** and enable **Detect calls from the paired
    Chrome extension**. Leave **Automatically record connected calls** off initially.
@@ -26,6 +26,15 @@ Chrome remembers the unpacked folder, so keep it in place. After updating its
 files, click **Reload** on its extension card and reload the meeting tabs. A
 managed browser may require your administrator to allow developer extensions.
 The extension has not been published to the Chrome Web Store.
+
+Pairing immediately registers this Chrome profile in **AI Assistant**, even with
+no meeting tabs open. Opening the extension popup checks and refreshes its
+registration; this does not start a call. Background heartbeats keep the profile
+active while Chrome and the desktop app are running. Profiles disappear after
+45 seconds without a heartbeat, and return after communication resumes. If the
+profile is missing, open the extension popup to refresh its status. Update both
+the desktop app and extension together: an older desktop app cannot accept the
+new registration protocol.
 
 Chrome's official [unpacked-extension instructions](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked)
 describe this installation flow. Windows and macOS use the same extension folder.
